@@ -1,0 +1,130 @@
+# Hacking My Camera
+
+Instrumento de precisión, saboteado a propósito.
+
+Hacking My Camera es una cámara-instrumento para Android: la imagen pasa por un motor de efectos propio con el lenguaje visual de Hydra y TouchDesigner. Esta identidad junta dos cosas que normalmente no van juntas: la limpieza de Teenage Engineering y del diseño de Warp Records, y la actitud de un fanzine punk, en la paleta ácida **Citrink** y con tipografías **Rubik Glitch**.
+
+## La idea: un manual de servicio saboteado
+
+La interfaz es un aparato bien hecho: etiquetas pequeñas, códigos de catálogo, una retícula de 4 px, formas de hardware. Eso es lo fino y lo pulcro.
+
+Lo punk no es una textura pegada encima. **Es un comportamiento.** En reposo, todo está alineado y limpio. Cuando pasa algo (disparas, grabas, cambias de efecto, el audio pega fuerte), el aparato se ensucia un instante: las capas de color se desregistran, un sello entra torcido, un fotograma sale fotocopiado. Luego vuelve a su sitio.
+
+> La limpieza es la norma. El sabotaje es el evento.
+
+## Principios
+
+1. **La imagen manda.** La interfaz ocupa el mínimo y nunca tapa el centro del visor. Si un control no hace falta ahora, no se ve.
+2. **Objeto, no pantalla.** Los controles son piezas de un aparato: etiquetas impresas, teclas, encoders. Nada de cristal translúcido, sombras flotantes ni tarjetas.
+3. **Dos formas y ninguna más.** Rectángulo recto para todo lo que es una etiqueta o un panel. Círculo para lo que se gira o se aprieta. Ver *Forma*.
+4. **La imagen fluye, la interfaz hace clic.** Los efectos son líquidos; la interfaz se mueve a saltos (`ease-step`), como un mecanismo.
+5. **Un solo sabotaje a la vez.** Nunca dos eventos de ruptura simultáneos. Si todo es punk, nada lo es.
+6. **La glitch es la voz, no el texto.** Rubik Glitch ya viene averiada: se usa grande y escasa. Todo lo que hay que leer pequeño va en una mono limpia.
+
+## Color: Citrink
+
+Ocho colores de la paleta [Citrink](https://lospec.com/palette-list/citrink) de Inkpendude, y **ninguno más**. No se mezclan, no se aclaran y no se oscurecen: cuando hace falta un tono intermedio, se usa un patrón (puntos, tramado) con dos colores de la paleta.
+
+| Hex | Token | Rol |
+|---|---|---|
+| `#201533` | `viewfinder` | Suelo y negro del sistema |
+| `#252446` | `panel` | Etiquetas, teclas, cajones |
+| `#254d70` | `panel-deep` | Tecla pulsada, selección, separación |
+| `#166e7a` | `lagoon` | Hairlines de 1 px y miniaturas |
+| `#52c33f` | `ink-muted` / `grass` | Texto secundario, LED, segunda capa del desregistro |
+| `#b2d942` | `acid` | Selección, parámetro activo, foco |
+| `#fcf660` | `flash` | Eventos: grabando, sellos, valores al límite |
+| `#ffffff` | `ink` | Texto y trazos principales |
+
+Reglas:
+- **Amarillo = algo está pasando.** Grabando, guardado, sabotaje, límite. Si nada pasa, no hay amarillo en pantalla.
+- **Lima = esto está activo.** Un efecto elegido, un parámetro que se toca, el foco de teclado. Nunca es de adorno.
+- Sobre `acid` y `flash` el texto es siempre `ink-fixed` (`#201533`). Sobre `panel-deep` el texto es `ink`, nunca `ink-muted` (3,9:1, no llega).
+- Un solo tema, oscuro, por decisión: es una cámara que se usa a menudo con poca luz y la paleta Citrink vive en oscuros. No hay tema claro.
+- Sin degradados en la interfaz. Los degradados son cosa de los efectos.
+- La interfaz **no usa transparencias**: ni `rgba`, ni desenfoque. Los fondos de etiqueta son sólidos.
+
+## Tipografía
+
+Cuatro familias, cada una con un trabajo:
+
+- **Rubik Glitch** (`display`, Google Fonts): el nombre del producto, el nombre de cada efecto al cambiarlo y los sellos de evento. Una sola grosor, ancha y negra. Es la voz de cartel. Se usa a 30 px o más.
+- **Rubik Glitch Pop** (`pop`, Google Fonts): reservada. Pantalla de arranque, icono y errores graves como `SIN SEÑAL`. Es el grito; si aparece todo el rato, deja de serlo.
+- **Martian Mono** (`mono`): todas las etiquetas, códigos y textos de interfaz. Etiquetas en mayúsculas a 10 px con `0.08em` de interletra. Las glitch no se leen pequeñas; por eso hay una mono limpia al lado.
+- **Doto** (`dot`): lecturas numéricas en matriz de puntos: contador de grabación y valores de las macros. Los fps no aparecen en la interfaz; viven en el HUD de depuración (triple toque en una esquina).
+
+Reglas:
+- Rubik Glitch **nunca** baja de 30 px y nunca se usa para un texto que haya que leer con prisa.
+- Una etiqueta nunca pasa de 3 palabras.
+- Los números siempre van en Doto o con `tabular-nums`; nunca bailan al cambiar.
+- Los textos de Rubik Glitch van en mayúsculas. Antes de usar un carácter con tilde o eñe, se comprueba que el glifo existe en la fuente.
+
+## Forma y retícula
+
+- Retícula de 4 px (`space-1`). Todo mide múltiplos de 4.
+- `radius-0` para paneles, etiquetas, miniaturas y cajones.
+- `radius-key` (2 px) solo para teclas físicas.
+- `radius-knob` para el obturador, los encoders y los LED.
+- **Sin sombras.** La separación se hace con `panel-deep` o con un trazo de 1 px en `lagoon`.
+- Los controles viven en el tercio inferior, al alcance del pulgar, alineados a la retícula. El centro del visor está prohibido para la interfaz.
+
+## Iconografía
+
+No hay librería de iconos. Cada control es una palabra en `label` o un pictograma dibujado con tres primitivas (círculo, cuadrado, línea) en una caja de 16 px, trazo de 2 px, extremos rectos. Si un pictograma necesita más de cuatro primitivas, se usa una palabra.
+
+## Movimiento
+
+- Toda la interfaz usa `ease-step` (`steps(4, end)`): avanza a saltos, nunca con rebote ni muelle.
+- `tick` (80 ms) para respuestas de tecla, `clack` (160 ms) para cajones y cambios de efecto.
+- Nada se mueve en reposo. Ni pulsos, ni respiraciones, ni brillos.
+- Con `prefers-reduced-motion`, el sabotaje se reduce a un cambio de color sin desplazamiento.
+
+## Protocolo de sabotaje
+
+Las únicas rupturas permitidas, cada una ligada a un evento:
+
+| Evento | Sabotaje | Duración |
+|---|---|---|
+| Foto | Las capas `flash` y `grass` de las etiquetas se desplazan `misreg` (3 px) en direcciones opuestas y vuelven; entra el sello `GUARDADO` | `hold` |
+| Empezar a grabar | Sello `REC` en `flash`, que se queda fijo arriba mientras graba | mientras dure |
+| Cambio de efecto | Un fotograma de fotocopia (la imagen a 1 bit, umbral duro) y el nombre del efecto en Rubik Glitch | `xerox-frame` + `hold` |
+| Pico de audio (si el efecto lo usa) | Las etiquetas se desregistran 1–3 px proporcional al pico | por frame |
+| Error o señal perdida | Pantalla de error en Rubik Glitch Pop sobre `flash`, torcida `stamp-angle` | hasta resolverse |
+
+El sello es el único elemento que puede girar fuera del ángulo recto, y solo `stamp-angle`. Lo dibuja el mismo motor que los efectos, así que hereda el efecto activo.
+
+## Los efectos y la paleta
+
+Los efectos de la galería también usan Citrink: sus rampas de color, dither y capas de impresión salen de estos ocho colores. Así, la imagen y la interfaz parecen del mismo aparato. Las miniaturas de efecto usan la rampa del efecto, nunca colores fuera de la paleta.
+
+## Voz y nombres
+
+Seca, técnica y un poco absurda, como un manual de servicio escrito por alguien que se ríe por dentro.
+
+- Los efectos tienen un **código de catálogo** y **una palabra**: `FX-07 TRAMA`, `FX-12 ESPEJO`, `FX-03 MUDA`. Palabras concretas en español, nunca adjetivos de marketing.
+- Las capturas se numeran como un catálogo de discos: `HMC-0423.jpg`, `HMC-0424.mp4`.
+- Los mensajes dicen qué pasa y qué hacer, sin disculpas ni exclamaciones: `SEÑAL PERDIDA. TOCA PARA REINTENTAR.`
+
+| Sí | No |
+|---|---|
+| `GUARDADO` | ¡Foto guardada con éxito! 🎉 |
+| `FX-07 TRAMA` | Efecto Mágico Retro |
+| `SIN MICRO` | Ups, parece que algo salió mal |
+
+## Sonido y háptica
+
+- Háptica con `navigator.vibrate`: tecla 8 ms; obturador `[12, 40, 12]`; empezar a grabar 30 ms.
+- Sonido opcional, apagado por defecto: clics cortos de onda cuadrada generados con Web Audio, sin muestras grabadas. Cada tecla suena distinta según su posición.
+
+## Lista negra
+
+Esto no aparece nunca en la interfaz:
+
+- Inter, Roboto, Poppins, Space Grotesk.
+- Cualquier color fuera de Citrink. Degradados, brillos neón, transparencias.
+- Cristal translúcido, desenfoque de fondo, sombras suaves, tarjetas flotantes.
+- Esquinas redondeadas genéricas (todo lo que no es `radius-0`, `radius-key` o `radius-knob`).
+- Iconos de librería (Material, Lucide) y emojis.
+- Animaciones con rebote o elementos que se mueven en reposo.
+- Rubik Glitch por debajo de 30 px, o Rubik Glitch Pop fuera de sus tres usos.
+- Sabotaje permanente: grano, ruido o glitch decorativo sin evento que lo cause.

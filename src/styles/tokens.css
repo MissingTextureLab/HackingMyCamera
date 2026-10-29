@@ -1,0 +1,70 @@
+/* Hacking My Camera — tokens from design-tokens.json (DESIGN.md is the source of truth).
+   Citrink only: no other colour, no transparency in the interface. */
+:root {
+  --viewfinder: #201533;
+  --panel: #252446;
+  --panel-deep: #254d70;
+  --ink: #ffffff;
+  --ink-muted: #52c33f;
+  --ink-fixed: #201533;
+  --acid: #b2d942;
+  --flash: #fcf660;
+  --grass: #52c33f;
+  --lagoon: #166e7a;
+  --focus: var(--acid);
+
+  --font-display: 'Rubik Glitch', 'Arial Black', 'Helvetica Neue', sans-serif;
+  --font-pop: 'Rubik Glitch Pop', 'Rubik Glitch', 'Arial Black', sans-serif;
+  --font-mono: 'Martian Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-dot: 'Doto', 'Martian Mono', ui-monospace, monospace;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+
+  --radius-0: 0;
+  --radius-key: 2px;
+  --radius-knob: 9999px;
+
+  --tick: 80ms;
+  --clack: 160ms;
+  --hold: 600ms;
+  --ease-step: steps(4, end);
+
+  --misreg: 3px;
+  --stamp-angle: -4deg;
+
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--viewfinder);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+.label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 12px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
