@@ -50,7 +50,7 @@ describe('signals', () => {
     expect(() =>
       effect({ id: 'x', code: '0', name: 'X' }, (m) => {
         const h = cam().hue();
-        m.macro('H', h, 'amount', 0, 1);
+        m.macro(['H', 'I'], [[h, 'amount', 0, 1]]);
         m.mod(h, 'amount', touch('x'), 0, 1);
         h.out(0);
       }),

@@ -4,7 +4,7 @@
 // pass inputs) is checked by running the compiler too.
 
 import { compileEffect } from './compile';
-import type { EffectGraph, Macro, Mod, NodeSpec, OutputId, SignalSource } from './types';
+import type { EffectGraph, Macro, MacroTarget, Mod, NodeSpec, OutputId, SignalSource } from './types';
 import { OUTPUTS } from './types';
 import { arity, OPS } from '../ops/registry';
 
@@ -127,13 +127,33 @@ export function validateEffect(input: unknown): EffectGraph {
   if (g.macros !== undefined && !Array.isArray(g.macros)) err('macros', 'must be an array');
   else if (Array.isArray(g.macros)) {
     if (g.macros.length > 3) err('macros', 'at most 3: drag x, drag y, two-finger twist');
+    const owned = new Set<string>();
     g.macros.forEach((m, i) => {
       const at = `macros[${i}]`;
       if (!isObj(m)) return err(at, 'must be an object');
-      if (!isStr(m.label) || m.label.length < 1 || m.label.length > 12) err(`${at}.label`, '1–12 characters');
-      const target = paramTarget(`${at}.target`, m.target);
-      const r = range(`${at}.range`, m.range);
-      if (target && r && isStr(m.label)) macros.push({ label: m.label, target, range: r });
+      const p = m.poles;
+      const poles =
+        Array.isArray(p) && p.length === 2 && p.every((x) => isStr(x) && x.length >= 1 && x.length <= 12)
+          ? ([p[0], p[1]] as [string, string])
+          : null;
+      if (!poles) err(`${at}.poles`, 'two names, 1–12 characters each');
+      const rest = m.at === undefined ? 0.5 : m.at;
+      if (!isNum(rest) || rest < 0 || rest > 1) err(`${at}.at`, 'resting position, 0–1');
+      const targets: MacroTarget[] = [];
+      if (!Array.isArray(m.targets) || m.targets.length === 0) err(`${at}.targets`, 'at least one param');
+      else
+        m.targets.forEach((t, j) => {
+          const tp = `${at}.targets[${j}]`;
+          if (!isObj(t)) return err(tp, 'must be an object');
+          const target = paramTarget(`${tp}.target`, t.target);
+          const r = range(`${tp}.range`, t.range);
+          if (target && owned.has(target)) err(`${tp}.target`, `${target} is already moved by another macro`);
+          if (target && r) {
+            owned.add(target);
+            targets.push({ target, range: r });
+          }
+        });
+      if (poles && targets.length && isNum(rest)) macros.push({ poles, targets, at: rest });
     });
   }
 
@@ -167,7 +187,7 @@ export function validateEffect(input: unknown): EffectGraph {
       if (m.smooth !== undefined && (!isNum(m.smooth) || m.smooth < 0 || m.smooth >= 1)) err(`${at}.smooth`, 'from 0 up to (not including) 1');
       if (m.quantize !== undefined && (!isNum(m.quantize) || m.quantize <= 0)) err(`${at}.quantize`, 'must be more than 0');
       if (target && r && source) {
-        if (macros.some((x) => x.target === target)) err(`${at}.target`, `${target} is already a macro`);
+        if (macros.some((x) => x.targets.some((t) => t.target === target))) err(`${at}.target`, `${target} is already a macro`);
         mods.push({
           target,
           source,

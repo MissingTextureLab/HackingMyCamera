@@ -579,12 +579,11 @@ fn PASS(uv: vec2f, threshold: f32, intensity: f32, radius: f32) -> vec4f {
 
 // Print: halftone in two Citrink inks on white paper. Each plate is a screen
 // at its own angle; the second plate is out of register by offset + jolt px.
-// variant 0-11 picks the ink pair (variant % 4) and the screen (variant / 4):
-// dots, lines or cross-hatch.
+// screen 0-2: dots, lines or cross-hatch; pair 0-3: which two inks.
 def({
   name: 'riso',
   kind: 'filter',
-  params: [p('offset', 3), p('cell', 7), p('gain', 1.1), p('variant', 0), p('jolt', 0)],
+  params: [p('offset', 3), p('cell', 7), p('gain', 1.1), p('screen', 0), p('pair', 0), p('jolt', 0)],
   passes: [
     {
       inputs: ['in0'],
@@ -618,10 +617,9 @@ fn plate(pix: vec2f, cell: f32, angle: f32, gain: f32, screen: u32) -> f32 {
   return cellInk(fract(r) - 0.5, ink, screen);
 }
 
-fn PASS(uv: vec2f, offset: f32, cell: f32, gain: f32, variant: f32, jolt: f32) -> vec4f {
-  let v = u32(clamp(floor(variant), 0.0, 11.0));
-  let pair = v % 4u;
-  let screen = v / 4u;
+fn PASS(uv: vec2f, offset: f32, cell: f32, gain: f32, screenF: f32, pairF: f32, jolt: f32) -> vec4f {
+  let screen = u32(clamp(floor(screenF), 0.0, 2.0));
+  let pair = u32(clamp(floor(pairF), 0.0, 3.0));
   let cs = max(cell, 2.0);
   let off = offset + jolt;
   let a = plate(FC, cs, 0.2618, gain, screen);

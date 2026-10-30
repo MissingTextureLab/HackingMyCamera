@@ -21,11 +21,12 @@ export type ToWorker =
   | { type: 'recStop' };
 
 export interface MacroInfo {
-  label: string;
-  slot: number;
-  min: number;
-  max: number;
-  value: number;
+  poles: [string, string];
+  targets: { slot: number; from: number; to: number }[];
+  /** Resting position. */
+  at: number;
+  /** Current position, 0 (first pole) … 1 (second pole). */
+  position: number;
 }
 
 export type FromWorker =
