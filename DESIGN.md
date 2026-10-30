@@ -112,7 +112,7 @@ Las únicas rupturas permitidas, cada una ligada a un evento:
 
 | Evento | Sabotaje | Duración |
 |---|---|---|
-| Foto | Las capas `flash` y `grass` de las etiquetas se desplazan `misreg` (3 px) en direcciones opuestas y vuelven; entra el sello `GUARDADO` | `hold` |
+| Foto | Las capas `flash` y `grass` de las etiquetas se desplazan `misreg` (3 px) en direcciones opuestas y vuelven; entra `GUARDADO`, compuesto igual que los títulos de los efectos (Rubik Glitch 48 px, sin fondo, fusión por diferencia) | `hold` |
 | Empezar a grabar | Sello `REC` en `flash`, que se queda fijo arriba mientras graba | mientras dure |
 | Cambio de efecto | Un fotograma de fotocopia (la imagen a 1 bit, umbral duro) y el nombre del efecto en Rubik Glitch | `xerox-frame` + `hold` |
 | Foto o empezar a grabar, en efectos que lo usan | La propia imagen se sabotea: en TRAMA las planchas saltan de registro (señal `event: shot`) | 0,6 s |

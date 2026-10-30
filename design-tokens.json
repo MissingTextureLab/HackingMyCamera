@@ -33,7 +33,7 @@
         "styles": [
           { "name": "brand", "fontSize": "56px", "lineHeight": 0.95, "fontWeight": 400, "letterSpacing": "-0.01em", "usage": "Nombre del producto y portadas. Rubik Glitch: la única tipografía que ya viene averiada de fábrica.", "sample": "Hacking My Camera" },
           { "name": "fx-title", "fontSize": "40px", "lineHeight": 0.95, "fontWeight": 400, "usage": "Nombre del efecto al cambiarlo; aparece 600 ms y se va. En mayúsculas.", "sample": "TRAMA" },
-          { "name": "stamp", "fontSize": "30px", "lineHeight": 1, "fontWeight": 400, "usage": "Sellos de evento (GUARDADO, REC) sobre flash, torcidos stamp-angle.", "sample": "GUARDADO" }
+          { "name": "stamp", "fontSize": "30px", "lineHeight": 1, "fontWeight": 400, "usage": "Sello REC sobre flash, torcido stamp-angle. GUARDADO va como los títulos de efecto: 48 px, sin fondo, fusión por diferencia.", "sample": "GUARDADO" }
         ]
       },
       {

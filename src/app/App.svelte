@@ -494,17 +494,19 @@
     pointer-events: none;
   }
 
+  /* GUARDADO: set like the effect titles (.fxtitle), straight on the image */
   .stamp {
     position: absolute;
     left: 50%;
     top: 34%;
-    transform: translate(-50%, -50%) rotate(var(--stamp-angle));
-    background: var(--flash);
-    color: var(--ink-fixed);
-    padding: var(--space-2) var(--space-3);
+    transform: translate(-50%, -50%);
+    margin: 0;
     font-family: var(--font-display);
-    font-size: 30px;
-    line-height: 1;
+    font-size: 48px;
+    line-height: 0.95;
+    text-transform: uppercase;
+    color: var(--ink);
+    mix-blend-mode: difference;
     white-space: nowrap;
     pointer-events: none;
   }
