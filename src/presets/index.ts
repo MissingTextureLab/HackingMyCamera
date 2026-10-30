@@ -96,8 +96,7 @@ const letra = effect({ id: 'letra', code: '31', name: 'Letra' }, (m) => {
 // Signal: an old TV. The camera goes through a real composite signal (colour
 // bleeds, fine detail turns to rainbows, the subcarrier crawls) onto a
 // curved tube with scanlines and a phosphor grille. Your finger is a magnet
-// on the glass: the picture bends and stains with rainbows around it, and
-// the stain fades slowly when you let go.
+// on the glass: the lines around it wave, and settle slowly when you let go.
 const senal = effect({ id: 'senal', code: '44', name: 'Señal' }, (m) => {
   const v = cam().composite(1.5, 0.5);
   const tv = v.crt(0.5, 0.6, 0.5, 0.5, 0);
