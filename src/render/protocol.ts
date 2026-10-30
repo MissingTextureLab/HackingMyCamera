@@ -26,6 +26,8 @@ export interface MacroInfo {
   min: number;
   max: number;
   value: number;
+  /** 0 drag x (A), 1 drag y (B), 2 twist (C). */
+  gesture: number;
   /** Params that follow this macro, each over its own range. */
   links?: { slot: number; min: number; max: number }[];
 }

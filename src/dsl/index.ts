@@ -97,6 +97,10 @@ export class Chain {
   lighten(other: Chain, amount?: number) { return this.bin('lighten', other, [amount]); }
   /** Feedback smoke: the image rises and swirls a little every frame, blurring as it ages. */
   smoke(amount?: number) { return this.un('smoke', [amount]); }
+  /** Real composite video: encode and decode NTSC-style; chroma bleed, rainbows and dot crawl (`artifact`). */
+  composite(bleed?: number, artifact?: number) { return this.un('composite', [bleed, artifact]); }
+  /** Cathode-ray tube: curved glass, 480 scanline beams, aperture grille, and a magnet at (mx, my). */
+  crt(curve?: number, mask?: number, mx?: number, my?: number, magnet?: number) { return this.un('crt', [curve, mask, mx, my, magnet]); }
   /** Motion since `previous` (usually the last camera frame in a buffer): px per frame per 8 px block. */
   flow(previous: Chain) { return this.bin('flow', previous, []); }
   /** Datamosh: drags this along a `motion` map (from flow), a `block` of pixels at a time. */
@@ -204,6 +208,8 @@ export interface MacroApi {
    * `links` ([chain, param, min, max]) follow the same gesture over their own ranges.
    */
   macro(label: string, chain: Chain, param: string, min: number, max: number, links?: [Chain, string, number, number][]): void;
+  /** Like macro, but always on the two-finger twist (C), leaving the drag free. */
+  twist(label: string, chain: Chain, param: string, min: number, max: number, links?: [Chain, string, number, number][]): void;
   /** Drives a param from a signal every frame. Don't target a param that is also a macro. */
   mod(chain: Chain, param: string, source: SignalSource, min: number, max: number, opts?: { smooth?: number; quantize?: number }): void;
 }
@@ -218,14 +224,18 @@ export function effect(meta: EffectMeta, body: (m: MacroApi) => void): EffectGra
       if (!node?.params || !(param in node.params)) throw new Error(`${chain.id} has no param "${param}"`);
       return `${chain.id}.${param}`;
     };
+    const macro = (label: string, chain: Chain, param: string, min: number, max: number, links?: [Chain, string, number, number][]): Macro => ({
+      label,
+      target: target(chain, param),
+      range: [min, max],
+      ...(links?.length ? { links: links.map(([c, p, lo, hi]) => ({ target: target(c, p), range: [lo, hi] as [number, number] })) } : {}),
+    });
     body({
       macro(label, chain, param, min, max, links) {
-        b.macros.push({
-          label,
-          target: target(chain, param),
-          range: [min, max],
-          ...(links?.length ? { links: links.map(([c, p, lo, hi]) => ({ target: target(c, p), range: [lo, hi] as [number, number] })) } : {}),
-        });
+        b.macros.push(macro(label, chain, param, min, max, links));
+      },
+      twist(label, chain, param, min, max, links) {
+        b.macros.push({ ...macro(label, chain, param, min, max, links), gesture: 2 });
       },
       mod(chain, param, source, min, max, opts = {}) {
         b.mods.push({ target: target(chain, param), source, range: [min, max], ...opts });

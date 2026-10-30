@@ -1257,6 +1257,124 @@ fn PASS(uv: vec2f, tracking: f32, noise: f32, bleed: f32, desync: f32) -> vec4f 
   ],
 });
 
+// Signal: a real composite video signal. Each of 480 lines is encoded like
+// NTSC (luma plus chroma on a subcarrier, 4 samples per cycle, phase flipping
+// every line and frame) and decoded with a TV's cheap filters: chroma smears
+// sideways (`bleed`), and with `artifact` (0-1) fine luma detail turns
+// into rainbows and the subcarrier crawls over colour edges. Lines are flat
+// here; crt draws them as beams.
+def({
+  name: 'composite',
+  kind: 'filter',
+  params: [p('bleed', 1.5), p('artifact', 0.5)],
+  passes: [
+    {
+      inputs: ['in0'],
+      wgsl: /* wgsl */ `
+fn toYiq(c: vec3f) -> vec3f {
+  return vec3f(dot(c, vec3f(0.299, 0.587, 0.114)), dot(c, vec3f(0.596, -0.274, -0.322)), dot(c, vec3f(0.211, -0.523, 0.312)));
+}
+
+fn PASS(uv: vec2f, bleed: f32, artifact: f32) -> vec4f {
+  let res = vec2f(textureDimensions(T0));
+  let line = floor(uv.y * 480.0);
+  let y = (line + 0.5) / 480.0;
+  // ~190 subcarrier cycles across the line, sampled 4 times each
+  let step = max(res.x / 190.0, 3.0) / 4.0;
+  let n0 = floor(FC.x / step);
+  let flip = (line + floor(G.time * 30.0)) % 2.0;
+  let sigma = 1.5 + max(bleed, 0.0) * 2.5;
+  let art = clamp(artifact, 0.0, 1.0);
+  var iq = vec2f(0.0);
+  var trueIq = vec2f(0.0);
+  var wsum = 0.0;
+  var notch = 0.0;
+  var raw = 0.0;
+  var lumaTrue = 0.0;
+  for (var k = -8; k <= 8; k++) {
+    let n = n0 + f32(k);
+    let c = toYiq(textureSampleLevel(T0, samp, vec2f((n + 0.5) * step / res.x, y), 0.0).rgb);
+    let ph = (n + flip * 2.0) * PI * 0.5;
+    let s = c.x + c.y * cos(ph) + c.z * sin(ph);
+    let w = exp(-f32(k * k) / (2.0 * sigma * sigma));
+    iq += vec2f(s * cos(ph), s * sin(ph)) * 2.0 * w;
+    trueIq += c.yz * w;
+    wsum += w;
+    // luma: one subcarrier cycle (ends half-weighted) cancels the chroma
+    if (abs(k) <= 2) {
+      let wl = select(1.0, 0.5, abs(k) == 2);
+      notch += s * wl * 0.25;
+      lumaTrue += c.x * wl * 0.25;
+    }
+    if (k == 0) { raw = s; }
+  }
+  // a good TV (comb filter) vs a cheap one (crosstalk both ways)
+  let lum = mix(lumaTrue, mix(notch, raw, 0.35), art);
+  let chroma = mix(trueIq, iq, art) / wsum;
+  var rgb = vec3f(
+    lum + 0.956 * chroma.x + 0.621 * chroma.y,
+    lum - 0.272 * chroma.x - 0.647 * chroma.y,
+    lum - 1.106 * chroma.x + 1.703 * chroma.y);
+  let snow = hash3(vec3f(FC, floor(G.time * 60.0))) - 0.5;
+  rgb += snow * (0.03 + 0.06 * art);
+  return vec4f(rgb, 1.0);
+}`,
+    },
+  ],
+});
+
+// Display: a cathode-ray tube. Curved glass (`curve`), 480 scanlines drawn
+// as beams that fatten on bright lines, an RGB aperture grille (`mask`),
+// dark corners. A magnet at (mx, my) (`magnet` 0-1) bends the beams around
+// it and breaks the colour purity into rainbow stains.
+def({
+  name: 'crt',
+  kind: 'filter',
+  params: [p('curve', 0.5), p('mask', 0.6), p('mx', 0.5), p('my', 0.5), p('magnet', 0)],
+  passes: [
+    {
+      inputs: ['in0'],
+      wgsl: /* wgsl */ `
+fn PASS(uv: vec2f, curve: f32, mask: f32, mx: f32, my: f32, magnet: f32) -> vec4f {
+  let asp = G.res.x / G.res.y;
+  let m = vec2f(mx, my);
+  // the magnet twists and pushes the beams near it
+  var toM = (uv - m) * vec2f(asp, 1.0);
+  let d = length(toM);
+  let k = clamp(magnet, 0.0, 1.0) * exp(-d * d / 0.05);
+  let a = k * 1.4;
+  toM = vec2f(cos(a) * toM.x - sin(a) * toM.y, sin(a) * toM.x + cos(a) * toM.y) * (1.0 + k * 0.3);
+  let p = m + toM / vec2f(asp, 1.0);
+  // curved glass
+  var q = p * 2.0 - 1.0;
+  q += q * (q.yx * q.yx) * curve * 0.25;
+  let tuv = q * 0.5 + 0.5;
+  if (any(tuv < vec2f(0.0)) || any(tuv > vec2f(1.0))) { return vec4f(0.0, 0.0, 0.0, 1.0); }
+  // scanline beams: brighter lines are fatter
+  let lf = tuv.y * 480.0;
+  let c = textureSampleLevel(T0, samp, vec2f(tuv.x, (floor(lf) + 0.5) / 480.0), 0.0).rgb;
+  let br = clamp(max(c.r, max(c.g, c.b)), 0.0, 1.0);
+  let off = fract(lf) - 0.5;
+  let width = mix(0.2, 0.42, br);
+  var col = c * exp(-off * off / (2.0 * width * width)) * 1.3;
+  // aperture grille
+  let tri = u32(FC.x) % 3u;
+  var grille = vec3f(0.3);
+  grille[tri] = 1.0;
+  col *= mix(vec3f(1.0), grille * 1.7, clamp(mask, 0.0, 1.0));
+  // the magnet breaks colour purity: rainbow stains around it
+  let stain = hsv2rgb(vec3f(fract(atan2(toM.y, toM.x) / TAU + d * 4.0), 0.9, 1.0));
+  col = mix(col, col * stain * 1.6 + stain * 0.08, k * 0.85);
+  // dark rounded corners
+  let e = abs(q);
+  let corner = 1.0 - smoothstep(0.0, 0.08, length(max(e - vec2f(0.9), vec2f(0.0))) - 0.02);
+  col *= corner * (1.0 - 0.25 * dot(q, q) * 0.5);
+  return vec4f(col, 1.0);
+}`,
+    },
+  ],
+});
+
 // Glitch: real pixel sorting, on the GPU. One workgroup per column (at half
 // resolution): every run of pixels whose brightness is within [low, high] is
 // sorted by brightness, upwards or downwards (dir); the rest stays put.

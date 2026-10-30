@@ -93,14 +93,20 @@ const letra = effect({ id: 'letra', code: '31', name: 'Letra' }, (m) => {
   a.glow(0.5, 0.7, 0.5).out(0);
 });
 
-// Signal: analogue video. Touch the image and the sync goes.
+// Signal: an old TV. The camera goes through a real composite signal (colour
+// bleeds, fine detail turns to rainbows, the subcarrier crawls) onto a
+// curved tube with scanlines and a phosphor grille. Your finger is a magnet
+// on the glass: the picture bends and stains with rainbows around it, and
+// the stain fades slowly when you let go.
 const senal = effect({ id: 'senal', code: '44', name: 'Señal' }, (m) => {
-  const v = cam().vhs(0.5, 0.6, 1.2, 0);
-  m.macro('TRACKING', v, 'tracking', 0, 1.5);
-  m.macro('SANGRADO', v, 'bleed', 0, 4);
-  m.macro('RUIDO', v, 'noise', 0, 1.5);
-  m.mod(v, 'desync', touch('down'), 0, 1, { smooth: 0.85 });
-  v.out(0);
+  const v = cam().composite(1.5, 0.5);
+  const tv = v.crt(0.5, 0.6, 0.5, 0.5, 0);
+  // the drag is the magnet, so the only gesture is the twist
+  m.twist('DIAFONÍA', v, 'artifact', 0, 1, [[v, 'bleed', 0.3, 2.7]]);
+  m.mod(tv, 'mx', touch('x'), 0, 1, { smooth: 0.7 });
+  m.mod(tv, 'my', touch('y'), 1, 0, { smooth: 0.7 });
+  m.mod(tv, 'magnet', touch('down'), 0, 1, { smooth: 0.985 });
+  tv.out(0);
 });
 
 // Glitch: real pixel sorting. Each column's runs of mid-to-bright pixels are

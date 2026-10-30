@@ -143,8 +143,14 @@ export function validateEffect(input: unknown): EffectGraph {
           if (lt && lr) links.push({ target: lt, range: lr });
         });
       }
-      if (target && r && isStr(m.label)) macros.push({ label: m.label, target, range: r, ...(links.length ? { links } : {}) });
+      if (m.gesture !== undefined && !(m.gesture === 0 || m.gesture === 1 || m.gesture === 2)) err(`${at}.gesture`, '0 (drag x), 1 (drag y) or 2 (twist)');
+      const gesture = m.gesture as number | undefined;
+      if (target && r && isStr(m.label)) {
+        macros.push({ label: m.label, target, range: r, ...(links.length ? { links } : {}), ...(gesture !== undefined ? { gesture } : {}) });
+      }
     });
+    const used = macros.map((m, i) => m.gesture ?? i);
+    if (new Set(used).size !== used.length) err('macros', 'two macros on the same gesture');
   }
 
   // mods

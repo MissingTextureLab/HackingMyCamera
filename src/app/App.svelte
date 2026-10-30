@@ -29,7 +29,8 @@
   let effectId = $state(PRESETS[0].id);
   // not named `effect`: Svelte would read `$effect` as a store subscription to it
   const active = $derived(PRESETS.find((p) => p.id === effectId)!);
-  let macros = $state<MacroInfo[]>([]);
+  /** By gesture: [A, B, C]; an effect may leave some empty. */
+  let macros = $state<(MacroInfo | undefined)[]>([]);
   let titleOn = $state(false);
 
   // camera
@@ -68,7 +69,7 @@
   // gestures on the viewfinder
   let gesture = $state<'none' | 'drag' | 'pinch'>('none');
   let zoom = $state(1);
-  let defaults: number[] = [];
+  let defaults: (number | undefined)[] = [];
   let pinchFrom = 1;
   let twistFrom = 0;
   let tilt: Tilt | null = null;
@@ -119,8 +120,10 @@
         break;
       case 'effect':
         if (m.id === effectId) {
-          macros = m.macros;
-          defaults = m.macros.map((x) => x.value);
+          const byGesture: (MacroInfo | undefined)[] = [undefined, undefined, undefined];
+          for (const x of m.macros) byGesture[x.gesture] = x;
+          macros = byGesture;
+          defaults = byGesture.map((x) => x?.value);
         }
         break;
       case 'photo':
@@ -247,7 +250,7 @@
         if (m) setMacro(2, twistFrom + (radians / Math.PI) * (m.max - m.min));
       },
       onDoubleTap() {
-        defaults.forEach((v, i) => setMacro(i, v));
+        defaults.forEach((v, i) => v !== undefined && setMacro(i, v));
         applyZoom(1);
         tilt?.recalibrate();
         buzz(8);
@@ -349,13 +352,15 @@
   {#if stamp}<div class="stamp">{stamp}</div>{/if}
   {#if notice}<div class="notice label">{notice}</div>{/if}
 
-  {#if gesture === 'drag' && macros.length}
+  {#if gesture === 'drag' && (macros[0] || macros[1])}
     <div class="readout">
-      {#each macros.slice(0, 2) as m, i (m.slot)}
-        <div class="cell" class:a={i === 0}>
-          <span class="k label">{i === 0 ? 'A' : 'B'} / {m.label}</span>
-          <span class="v">{fmt(m.value)}</span>
-        </div>
+      {#each macros.slice(0, 2) as m, i (i)}
+        {#if m}
+          <div class="cell" class:a={i === 0}>
+            <span class="k label">{i === 0 ? 'A' : 'B'} / {m.label}</span>
+            <span class="v">{fmt(m.value)}</span>
+          </div>
+        {/if}
       {/each}
     </div>
   {:else if gesture === 'pinch'}

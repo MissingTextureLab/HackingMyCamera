@@ -17,6 +17,8 @@ export interface Macro {
   range: [number, number];
   /** Params that follow the same gesture, each over its own range. */
   links?: { target: string; range: [number, number] }[];
+  /** 0 drag x (A), 1 drag y (B), 2 twist (C); by default its place in the list. */
+  gesture?: number;
 }
 
 export type LfoShape = 'sine' | 'tri' | 'saw' | 'square' | 'random' | 'noise';

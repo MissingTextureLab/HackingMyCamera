@@ -76,7 +76,7 @@ src/app/       Svelte 5 UI (App, Shutter, EffectStrip) and gestures.ts (drag / p
 - Patching under Documents: when Edit/Write fail with ENOENT on a `.tmp` file (Controlled Folder Access), apply changes with a Node script that edits files in place.
 - WGSL reserved words bite (`target`, `module`, …): avoid them as names in snippets; the engine shows compile errors as an on-screen notice.
 - Effects from outside the code (files, editor) go through `validateEffect`; the worker validates every graph it receives.
-- A param is either a macro (gestures) or a mod (signals), never both. A macro can drag linked params along (`m.macro(label, chain, param, min, max, [[chain, param, min, max]])`), each over its own range; set their defaults so they agree at the macro's resting value.
+- A param is either a macro (gestures) or a mod (signals), never both. Macros take the gestures in order (A drag x, B drag y, C twist); `m.twist(...)` puts one on C directly, leaving the drag free (SEÑAL uses the drag as a magnet). A macro can drag linked params along (`m.macro(label, chain, param, min, max, [[chain, param, min, max]])`), each over its own range; set their defaults so they agree at the macro's resting value.
 - No microphone: the user doesn't want audio input or audio in recordings.
 - Canvas reads for photo/recording must happen in the same task right after `queue.submit` (see `loop` in the worker).
 - Render size: long side capped at 1920, even dimensions (H.264).

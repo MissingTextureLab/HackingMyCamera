@@ -132,7 +132,7 @@ Cada efecto trata una sola cuestión de lo visual. Si dos efectos responden a la
 | FX-19 | MUDA | Memoria | solo lo que se mueve deja fantasmas de color, que fluyen sobre un relieve de ruido y se arrastran en bloques siguiendo el movimiento real (datamosh); lo quieto queda nítido |
 | FX-22 | BARRIDO | Tiempo | slit-scan con rendija horizontal, que sube y baja con el dedo; cada repetición del historial es una copia peor que la anterior (se emborrona, el rojo se desplaza, el color se aplasta y se oscurece) |
 | FX-31 | LETRA | Tipografía | la imagen escrita con caracteres reales de Martian Mono, ordenados por densidad; letras grandes donde la imagen está tranquila y pequeñas donde hay detalle, los contornos dibujados con trazos (- \ | /) que los siguen, y un brillo leve en las letras claras |
-| FX-44 | SEÑAL | Vídeo analógico | tracking, nieve, sangrado; tocar la imagen hace perder la sincronía (la imagen rueda) |
+| FX-44 | SEÑAL | Vídeo analógico | tele antigua: señal compuesta real (color corrido, arcoíris en el detalle fino, dot crawl) sobre un tubo curvo con líneas de barrido y rejilla de fósforo; el dedo es un imán que curva la imagen y la mancha de arcoíris, y la mancha se recupera despacio |
 | FX-50 | ORDEN | Glitch digital | pixel sorting real, calculado en la GPU con un compute shader |
 | FX-60 | RELIEVE | Relieve | terreno de líneas de cresta, encuadre frontal y bajo; número de líneas como gesto |
 | FX-66 | CIUDAD | Masa | bloques en vista isométrica, tan altos como brillante es la imagen |
