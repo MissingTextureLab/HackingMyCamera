@@ -67,6 +67,19 @@
     padding: 0;
     cursor: pointer;
     touch-action: none;
+    position: relative;
+  }
+  /* reticle ring around the main piece; flash while recording */
+  .shutter::before {
+    content: '';
+    position: absolute;
+    inset: -10px;
+    border-radius: var(--radius-knob);
+    border: 1px solid var(--lagoon);
+    pointer-events: none;
+  }
+  .rec::before {
+    border-color: var(--flash);
   }
   .shutter:focus-visible {
     outline: 2px solid var(--focus);

@@ -329,6 +329,8 @@
   const fmt = (v: number) => v.toFixed(2);
   const recClock = $derived(`${String(Math.floor(recSeconds / 60)).padStart(2, '0')}:${String(recSeconds % 60).padStart(2, '0')}`);
   const lens = $derived(source === 'test' ? 'TEST' : facing === 'user' ? 'FRON' : 'TRAS');
+  const two = (n: number) => String(n).padStart(2, '0');
+  const position = $derived(`${two(PRESETS.indexOf(active) + 1)}/${two(PRESETS.length)}`);
 </script>
 
 <main class="screen" class:misreg onpointerdowncapture={engage}>
@@ -338,11 +340,11 @@
     aria-label="Visor: arrastra para las macros, pellizca para el zoom, gira con dos dedos, doble toque para restablecer"
   ></canvas>
 
-  <div class="tag tl label"><span class="muted">FX-{active.code}</span><span>{active.name}</span></div>
+  <div class="tag tl label cut-br active"><span class="muted">FX-{active.code}</span><span>{active.name}</span></div>
   <button class="tag tc label" type="button" onclick={toggleGrade} aria-label="Revelado: {GRADES[grade]}. Toca para cambiar">
     <span class="swatch" class:violet={grade === 1}></span><span>{GRADES[grade]}</span>
   </button>
-  <button class="tag tr label" type="button" onclick={statusTap} aria-label="Cámara activa">
+  <button class="tag tr label cut-bl" type="button" onclick={statusTap} aria-label="Cámara activa">
     <span class="led" class:on={source === 'camera'} class:rec={recording}></span><span>{lens}</span>
   </button>
 
@@ -358,23 +360,23 @@
     <div class="readout">
       {#each macros.slice(0, 2) as m, i (i)}
         {#if m}
-          <div class="cell" class:a={i === 0}>
+          <div class="cell cut-tr" class:a={i === 0}>
             <span class="k label">{i === 0 ? 'A' : 'B'} / {m.label}</span>
-            <span class="v">{fmt(m.value)}</span>
+            <span class="v scan">{fmt(m.value)}</span>
           </div>
         {/if}
       {/each}
     </div>
   {:else if gesture === 'pinch'}
     <div class="readout">
-      <div class="cell a">
+      <div class="cell cut-tr a">
         <span class="k label">ZOOM</span>
-        <span class="v">{zoom.toFixed(1)}×</span>
+        <span class="v scan">{zoom.toFixed(1)}×</span>
       </div>
       {#if macros[2]}
-        <div class="cell">
+        <div class="cell cut-tr">
           <span class="k label">C / {macros[2].label}</span>
-          <span class="v">{fmt(macros[2].value)}</span>
+          <span class="v scan">{fmt(macros[2].value)}</span>
         </div>
       {/if}
     </div>
@@ -390,24 +392,27 @@
   {/if}
 
   <div class="deck">
+    <div class="rail" aria-hidden="true"><span class="label cut-bl">{position}</span></div>
     <EffectStrip effects={PRESETS} selected={effectId} onselect={(id) => selectEffect(id)} onthumb={queueThumb} />
     <div class="row">
-      <button class="key label" type="button" onclick={flip} aria-label="Cambiar cámara">F/T</button>
+      <button class="key cut-tr" type="button" onclick={flip} aria-label="Cambiar cámara"><span class="label cut-tr">F/T</span></button>
       <Shutter
         {recording}
         onphoto={() => send({ type: 'photo' })}
         onrecstart={() => send({ type: 'recStart' })}
         onrecstop={() => send({ type: 'recStop' })}
       />
-      <button class="last" type="button" onclick={share} aria-label="Compartir última captura" disabled={!last} data-src={last?.url}>
-        {#if last && !last.video}<img src={last.url} alt="" />{/if}
+      <button class="last cut-tl" type="button" onclick={share} aria-label="Compartir última captura" disabled={!last} data-src={last?.url}>
+        <span class="well cut-tl">{#if last && !last.video}<img src={last.url} alt="" />{/if}</span>
         {#if last}<span class="n">{last.name.slice(4, 8)}{last.video ? ' MP4' : ''}</span>{/if}
       </button>
     </div>
   </div>
 
   {#if fatal}
-    <div class="fatal"><p>{fatal}</p><span class="label">Chrome para Android con WebGPU</span></div>
+    <div class="fatal">
+      <div class="card"><p>{fatal}</p><span class="label scan">Chrome para Android con WebGPU</span></div>
+    </div>
   {/if}
 </main>
 
@@ -439,6 +444,19 @@
     padding: var(--space-1) var(--space-2);
     border: 0;
     border-radius: var(--radius-0);
+  }
+  /* side plates mirror each other: stripe on the outer edge, the cut (and the
+     padding that clears it) on the inner corner; the centre plate stays plain */
+  .tl {
+    border-left: var(--stroke) solid var(--lagoon);
+    padding-right: var(--space-3);
+  }
+  .tr {
+    border-right: var(--stroke) solid var(--lagoon);
+    padding-left: var(--space-3);
+  }
+  .tag.active {
+    border-color: var(--acid);
   }
   .tag .muted {
     color: var(--ink-muted);
@@ -528,13 +546,13 @@
   .recstamp b {
     font-family: var(--font-display);
     font-weight: 400;
-    font-size: 24px;
+    font-size: 32px;
     line-height: 1;
   }
   .recstamp span {
     font-family: var(--font-dot);
     font-weight: 800;
-    font-size: 22px;
+    font-size: 24px;
     line-height: 1;
     font-variant-numeric: tabular-nums;
   }
@@ -553,22 +571,28 @@
   .readout {
     position: absolute;
     left: var(--space-4);
-    bottom: calc(196px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(216px + env(safe-area-inset-bottom, 0px));
     display: flex;
     gap: var(--space-2);
     pointer-events: none;
   }
+  /* a header bar over a scan-line body (DESIGN.md, Capa HUD) */
   .cell {
-    background: var(--panel);
-    padding: var(--space-1) var(--space-2) var(--space-2);
     display: flex;
     flex-direction: column;
-    gap: 2px;
   }
+  /* the cut is on the header's top right, towards the centre */
   .cell .k {
-    color: var(--ink-muted);
+    background: var(--panel-deep);
+    color: var(--ink);
+    padding: var(--space-1) var(--space-4) var(--space-1) var(--space-2);
+  }
+  .cell.a .k {
+    background: var(--acid);
+    color: var(--ink-fixed);
   }
   .cell .v {
+    padding: var(--space-2);
     font-family: var(--font-dot);
     font-size: 40px;
     line-height: 1;
@@ -593,6 +617,28 @@
     font-variant-numeric: tabular-nums;
     pointer-events: none;
   }
+  /* corner brackets, lagoon: an instrument frame, not a selection; mirrored
+     because the HUD sits on the right */
+  .hud::before,
+  .hud::after {
+    content: '';
+    position: absolute;
+    width: var(--bracket);
+    height: var(--bracket);
+    border: 0 solid var(--lagoon);
+  }
+  .hud::before {
+    top: calc(var(--space-1) * -1);
+    right: calc(var(--space-1) * -1);
+    border-top-width: var(--stroke);
+    border-right-width: var(--stroke);
+  }
+  .hud::after {
+    left: calc(var(--space-1) * -1);
+    bottom: calc(var(--space-1) * -1);
+    border-left-width: var(--stroke);
+    border-bottom-width: var(--stroke);
+  }
 
   .deck {
     position: absolute;
@@ -604,40 +650,94 @@
     flex-direction: column;
     gap: var(--space-4);
   }
+  /* hairline over the gallery, capped at both ends, with the position on a plate */
+  .rail {
+    position: relative;
+    height: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    margin-bottom: calc(var(--space-2) * -1);
+  }
+  .rail::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 1px;
+    background: var(--lagoon);
+  }
+  .rail::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 2px;
+    height: 8px;
+    border: 0 solid var(--lagoon);
+    border-left-width: var(--stroke);
+    border-right-width: var(--stroke);
+  }
+  .rail span {
+    position: relative;
+    margin-right: var(--space-4);
+    background: var(--panel);
+    color: var(--ink-muted);
+    padding: 0 var(--space-2) 0 var(--space-3);
+    font-variant-numeric: tabular-nums;
+    z-index: 1;
+  }
   .row {
     display: grid;
     grid-template-columns: 48px 1fr 48px;
     align-items: center;
   }
+  /* framed pieces: a lagoon cut with 1px padding around a face with the same
+     cut; F/T and the last capture cut the top corner that faces the shutter */
   .key {
     width: 48px;
     height: 48px;
-    border-radius: var(--radius-key);
-    background: var(--panel);
+    padding: 1px;
+    border: 0;
+    border-radius: var(--radius-0);
+    background: var(--lagoon);
     color: var(--ink);
-    border: 1px solid var(--lagoon);
     cursor: pointer;
+  }
+  .key span {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 100%;
+    background: var(--panel);
     transition: background var(--tick) var(--ease-step);
   }
-  .key:active {
+  .key:active span {
     background: var(--panel-deep);
   }
+  /* clip-path would cut an outline: focus thickens the frame instead */
   .key:focus-visible,
   .last:focus-visible {
-    outline: 2px solid var(--focus);
-    outline-offset: 3px;
+    outline: none;
+    padding: var(--stroke);
+    background: var(--focus);
   }
   .last {
     width: 48px;
     height: 48px;
-    padding: 0;
+    padding: 1px;
     border: 0;
     border-radius: var(--radius-0);
-    outline: 1px solid var(--lagoon);
-    background: var(--panel);
+    background: var(--lagoon);
     position: relative;
-    overflow: hidden;
     cursor: pointer;
+  }
+  .last .well {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background: var(--panel);
   }
   .last img {
     width: 100%;
@@ -647,12 +747,14 @@
   }
   .last .n {
     position: absolute;
-    left: 0;
-    bottom: 0;
+    left: 1px;
+    bottom: 1px;
     background: var(--panel);
-    font-size: 8px;
-    line-height: 10px;
-    padding: 0 2px;
+    font-size: 10px;
+    line-height: 12px;
+    padding: 0 var(--space-1);
+    max-width: 100%;
+    box-sizing: border-box;
     letter-spacing: 0.04em;
     color: var(--ink);
   }
@@ -690,6 +792,12 @@
     padding: var(--space-6);
     text-align: center;
   }
+  /* a Stray-style window: flash header bar over a scan-line body, stamped askew */
+  .fatal .card {
+    display: flex;
+    flex-direction: column;
+    transform: rotate(var(--stamp-angle));
+  }
   .fatal p {
     margin: 0;
     font-family: var(--font-pop);
@@ -698,9 +806,9 @@
     background: var(--flash);
     color: var(--ink-fixed);
     padding: var(--space-2) var(--space-3);
-    transform: rotate(var(--stamp-angle));
   }
   .fatal .label {
     color: var(--ink-muted);
+    padding: var(--space-3) var(--space-4);
   }
 </style>

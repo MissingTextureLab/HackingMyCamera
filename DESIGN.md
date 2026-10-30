@@ -2,7 +2,7 @@
 
 Instrumento de precisión, saboteado a propósito.
 
-Hacking My Camera es una cámara-instrumento para Android: la imagen pasa por un motor de efectos propio con el lenguaje visual de Hydra y TouchDesigner. Esta identidad junta dos cosas que normalmente no van juntas: la limpieza de Teenage Engineering y del diseño de Warp Records, y la actitud de un fanzine punk, en la paleta ácida **Citrink** y con tipografías **Rubik Glitch**.
+Hacking My Camera es una cámara-instrumento para Android: la imagen pasa por un motor de efectos propio con el lenguaje visual de Hydra y TouchDesigner. Esta identidad junta dos cosas que normalmente no van juntas: la limpieza de Teenage Engineering y del diseño de Warp Records, y la actitud de un fanzine punk, en la paleta ácida **Citrink** y con tipografías **Rubik Glitch**. Encima lleva una **capa HUD** tomada de las interfaces de videojuego (Cyberpunk 2077, Stray): esquinas cortadas, corchetes de selección, barras de cabecera y líneas de barrido. Así el aparato parece el visor de alguien que está dentro de un juego.
 
 ## La idea: un manual de servicio saboteado
 
@@ -15,8 +15,8 @@ Lo punk no es una textura pegada encima. **Es un comportamiento.** En reposo, to
 ## Principios
 
 1. **La imagen manda.** La interfaz ocupa el mínimo y nunca tapa el centro del visor. Si un control no hace falta ahora, no se ve.
-2. **Objeto, no pantalla.** Los controles son piezas de un aparato: etiquetas impresas, teclas, encoders. Nada de cristal translúcido, sombras flotantes ni tarjetas.
-3. **Dos formas y ninguna más.** Rectángulo recto para todo lo que es una etiqueta o un panel. Círculo para lo que se gira o se aprieta. Ver *Forma*.
+2. **Objeto, no pantalla.** Los controles son piezas de un aparato: etiquetas impresas, teclas, encoders, placas troqueladas de un HUD. Nada de cristal translúcido, sombras flotantes ni tarjetas.
+3. **Dos formas y ninguna más.** Placa para todo lo que es una etiqueta, un panel o una tecla: un rectángulo que puede llevar una esquina cortada. Círculo para lo que se gira o se aprieta. Ver *Forma*.
 4. **La imagen fluye, la interfaz hace clic.** Los efectos son líquidos; la interfaz se mueve a saltos (`ease-step`), como un mecanismo.
 5. **Un solo sabotaje a la vez.** Nunca dos eventos de ruptura simultáneos. Si todo es punk, nada lo es.
 6. **La glitch es la voz, no el texto.** Rubik Glitch ya viene averiada: se usa grande y escasa. Todo lo que hay que leer pequeño va en una mono limpia.
@@ -41,7 +41,7 @@ Reglas:
 - **Lima = esto está activo.** Un efecto elegido, un parámetro que se toca, el foco de teclado. Nunca es de adorno.
 - Sobre `acid` y `flash` el texto es siempre `ink-fixed` (`#201533`). Sobre `panel-deep` el texto es `ink`, nunca `ink-muted` (3,9:1, no llega).
 - Un solo tema, oscuro, por decisión: es una cámara que se usa a menudo con poca luz y la paleta Citrink vive en oscuros. No hay tema claro.
-- Sin degradados en la interfaz. Los degradados son cosa de los efectos.
+- Sin degradados en la interfaz. Los degradados son cosa de los efectos. La trama de líneas de barrido (*Capa HUD*) no es un degradado: son dos colores de la paleta en cortes duros.
 - La interfaz **no usa transparencias**: ni `rgba`, ni desenfoque. Los fondos de etiqueta son sólidos.
 
 ## Tipografía
@@ -64,11 +64,46 @@ Reglas:
 ## Forma y retícula
 
 - Retícula de 4 px (`space-1`). Todo mide múltiplos de 4.
-- `radius-0` para paneles, etiquetas, miniaturas y cajones.
-- `radius-key` (2 px) solo para teclas físicas.
+- `radius-0` para paneles, etiquetas, miniaturas, teclas y cajones.
+- `chamfer` (8 px): la esquina cortada a 45°, una sola por pieza, como una placa troquelada. **El corte mira al centro del visor**: las piezas de la izquierda cortan una esquina derecha, las de la derecha van en espejo y las del eje central no llevan corte. Así cada pieza tiene su forma y el conjunto queda simétrico. Ver *Cada pieza, su corte*.
 - `radius-knob` para el obturador, los encoders y los LED.
 - **Sin sombras.** La separación se hace con `panel-deep` o con un trazo de 1 px en `lagoon`.
 - Los controles viven en el tercio inferior, al alcance del pulgar, alineados a la retícula. El centro del visor está prohibido para la interfaz.
+
+## Capa HUD
+
+Las interfaces de Cyberpunk 2077 y Stray resuelven lo mismo que esta app: información pequeña encima de una imagen que manda. De ellas sale una capa de detalles. No es decoración: cada pieza tiene un trabajo, y todas respetan Citrink, el cero de transparencias y la regla de que nada se mueve en reposo.
+
+| Pieza | Viene de | Trabajo | Regla |
+|---|---|---|---|
+| **Chaflán** | placas de Cyberpunk | dice "esto es una pieza del aparato" | una esquina, la que mira al centro, `chamfer` |
+| **Marco** | ranuras de inventario | separa una miniatura o una tecla de la imagen | 1 px `lagoon` que sigue el chaflán; en la pieza elegida pasa a `acid` |
+| **Corchetes** | matriz de código | marcan la selección | dos L de `bracket` (12 px) y `stroke` (2 px) en esquinas opuestas, a `space-1` de la pieza: arriba a la izquierda y abajo a la derecha, o en espejo si la pieza está a la derecha. `acid` en lo elegido y `lagoon` en el HUD de depuración |
+| **Franja** | tarjetas de inventario | dice qué representa la placa | 2 px en el borde exterior, el opuesto al corte. `acid` en la placa del efecto activo, `lagoon` en el resto |
+| **Cabecera** | ventanas de Stray | nombra una lectura | barra sólida a todo el ancho de la placa: `panel-deep` con `ink`, o `acid` con `ink-fixed` si es el parámetro activo |
+| **Líneas de barrido** | paneles de Stray | fondo de las lecturas grandes | trama de 4 px: 3 px `panel` y 1 px `viewfinder`. Solo en el cuerpo de las lecturas y en la pantalla de error |
+| **Raíl** | reglas con remate | sitúa la galería | trazo de 1 px `lagoon` sobre la tira de efectos, con remates de 2 × 8 px y la posición (`07/11`) en una placa |
+| **Retícula del obturador** | menú circular | marca la pieza principal | anillo de 1 px `lagoon` a 8 px del obturador; `flash` mientras graba |
+
+### Cada pieza, su corte
+
+| Pieza | Sitio | Corte | Detalle propio |
+|---|---|---|---|
+| Etiqueta del efecto (`FX-07 TRAMA`) | arriba a la izquierda | abajo a la derecha | franja `acid` a la izquierda |
+| Etiqueta del revelado (`ÁCIDO`) | arriba, centrada | ninguno | rectángulo limpio con la muestra de color |
+| Etiqueta de cámara (`TEST`, `TRAS`) | arriba a la derecha | abajo a la izquierda | la del efecto en espejo: franja `lagoon` a la derecha |
+| HUD de depuración | arriba a la derecha | ninguno | corchetes `lagoon` en espejo (arriba a la derecha, abajo a la izquierda) |
+| Lecturas A / B / C | abajo a la izquierda | arriba a la derecha, en la cabecera | cabecera sólida y cuerpo con líneas de barrido |
+| Posición del raíl (`07/11`) | sobre la tira, a la derecha | abajo a la izquierda | placa sobre la línea con remates |
+| Miniaturas | la tira | abajo a la derecha, todas igual | son una serie que se desliza: un solo corte para todas; la elegida lleva marco y corchetes `acid` |
+| Tecla F/T | abajo a la izquierda | arriba a la derecha, hacia el obturador | marco `lagoon` |
+| Última captura | abajo a la derecha | arriba a la izquierda, hacia el obturador | la tecla F/T en espejo |
+| Obturador | abajo, centrado | ninguno (círculo) | anillo de retícula |
+| Pantalla de error | centrada | ninguno | ventana con cabecera `flash`, torcida `stamp-angle` |
+
+Una pieza nueva sigue la misma regla: se mira dónde vive y se corta la esquina que apunta al centro. Si vive en el eje, no se corta.
+
+Lo que **no** se toma de esas interfaces: el cristal translúcido y el desenfoque de Stray, el rojo de Cyberpunk, los brillos y los textos de relleno (microtexto falso, números de serie inventados). Si un detalle no dice nada, no entra.
 
 ## Icono de la app
 
@@ -187,7 +222,8 @@ Esto no aparece nunca en la interfaz:
 - Inter, Roboto, Poppins, Space Grotesk.
 - Cualquier color fuera de Citrink. Degradados, brillos neón, transparencias.
 - Cristal translúcido, desenfoque de fondo, sombras suaves, tarjetas flotantes.
-- Esquinas redondeadas genéricas (todo lo que no es `radius-0`, `radius-key` o `radius-knob`).
+- Esquinas redondeadas genéricas (todo lo que no es `radius-0`, `chamfer` o `radius-knob`). Más de un chaflán por pieza.
+- Microtexto falso o decorativo: cada texto del HUD dice algo real.
 - Iconos de librería (Material, Lucide) y emojis.
 - Animaciones con rebote o elementos que se mueven en reposo.
 - Rubik Glitch por debajo de 30 px, o Rubik Glitch Pop fuera de sus tres usos.

@@ -23,7 +23,7 @@
 <div class="strip" role="group" aria-label="Efectos">
   {#each effects as fx (fx.id)}
     <button class="fx" type="button" aria-pressed={fx.id === selected} onclick={() => onselect(fx.id)}>
-      <canvas class="thumb" use:live={fx.id} aria-hidden="true"></canvas>
+      <span class="slot cut-br"><canvas class="thumb cut-br" use:live={fx.id} aria-hidden="true"></canvas></span>
       <span class="code label">{fx.code} {fx.name}</span>
     </button>
   {/each}
@@ -36,11 +36,12 @@
     overflow-x: auto;
     scrollbar-width: none;
     touch-action: pan-x;
-    /* room for the selected outline */
+    /* room for the selection brackets */
     padding: 4px 4px 0;
     margin: -4px -4px 0;
   }
   .fx {
+    position: relative;
     flex: 0 0 auto;
     display: flex;
     flex-direction: column;
@@ -55,24 +56,51 @@
     outline: 2px solid var(--focus);
     outline-offset: 4px;
   }
-  .thumb {
+  /* inventory slot: 1px lagoon frame that follows the chamfer */
+  .slot {
     display: block;
     width: 48px;
     height: 48px;
-    border-radius: var(--radius-0);
-    outline: 1px solid var(--lagoon);
+    padding: 1px;
+    box-sizing: border-box;
+    background: var(--lagoon);
+  }
+  .thumb {
+    display: block;
+    width: 100%;
+    height: 100%;
     background: var(--panel);
   }
   .code {
     background: var(--panel);
     color: var(--ink);
-    font-size: 9px;
+    font-size: 10px;
     padding: 0 var(--space-1);
     white-space: nowrap;
   }
-  .fx[aria-pressed='true'] .thumb {
-    outline: 2px solid var(--acid);
-    outline-offset: 2px;
+  .fx[aria-pressed='true'] .slot {
+    background: var(--acid);
+  }
+  /* selection: two acid brackets on opposite corners of the slot */
+  .fx[aria-pressed='true']::before,
+  .fx[aria-pressed='true']::after {
+    content: '';
+    position: absolute;
+    width: var(--bracket);
+    height: var(--bracket);
+    border: 0 solid var(--acid);
+  }
+  .fx[aria-pressed='true']::before {
+    top: -4px;
+    left: -4px;
+    border-top-width: var(--stroke);
+    border-left-width: var(--stroke);
+  }
+  .fx[aria-pressed='true']::after {
+    top: 40px;
+    left: 40px;
+    border-right-width: var(--stroke);
+    border-bottom-width: var(--stroke);
   }
   .fx[aria-pressed='true'] .code {
     background: var(--acid);

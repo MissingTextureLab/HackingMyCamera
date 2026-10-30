@@ -1,6 +1,6 @@
 {
   "name": "Hacking My Camera",
-  "version": 2,
+  "version": 3,
   "color": {
     "themes": [
       { "id": "citrink", "name": "Citrink" }
@@ -33,7 +33,7 @@
         "styles": [
           { "name": "brand", "fontSize": "56px", "lineHeight": 0.95, "fontWeight": 400, "letterSpacing": "-0.01em", "usage": "Nombre del producto y portadas. Rubik Glitch: la única tipografía que ya viene averiada de fábrica.", "sample": "Hacking My Camera" },
           { "name": "fx-title", "fontSize": "40px", "lineHeight": 0.95, "fontWeight": 400, "usage": "Nombre del efecto al cambiarlo; aparece 600 ms y se va. En mayúsculas.", "sample": "TRAMA" },
-          { "name": "stamp", "fontSize": "30px", "lineHeight": 1, "fontWeight": 400, "usage": "Sello REC sobre flash, torcido stamp-angle. GUARDADO va como los títulos de efecto: 48 px, sin fondo, fusión por diferencia.", "sample": "GUARDADO" }
+          { "name": "stamp", "fontSize": "32px", "lineHeight": 1, "fontWeight": 400, "usage": "Sello REC sobre flash, torcido stamp-angle. GUARDADO va como los títulos de efecto: 48 px, sin fondo, fusión por diferencia.", "sample": "GUARDADO" }
         ]
       },
       {
@@ -76,8 +76,14 @@
   "radius": {
     "tokens": [
       { "name": "radius-0", "value": "0", "usage": "Paneles, etiquetas, miniaturas, cajones. Lo recortado es recto." },
-      { "name": "radius-key", "value": "2px", "usage": "Solo teclas físicas pulsables. Lo justo para que no corte." },
       { "name": "radius-knob", "value": "9999px", "usage": "Obturador, encoders y LEDs: lo que gira o se aprieta es un círculo." }
+    ]
+  },
+  "hud": {
+    "tokens": [
+      { "name": "chamfer", "value": "8px", "usage": "Esquina cortada a 45°, una por pieza: la que mira al centro del visor. Las piezas del eje central no llevan corte." },
+      { "name": "bracket", "value": "12px", "usage": "Lado de cada corchete en L que marca la selección (dos, en esquinas opuestas)." },
+      { "name": "stroke", "value": "2px", "usage": "Grosor de corchetes y franjas de estado." }
     ]
   },
   "timing": {
