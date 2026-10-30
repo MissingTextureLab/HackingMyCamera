@@ -650,27 +650,37 @@ def({
     {
       inputs: ['in0', 'in1'],
       wgsl: /* wgsl */ `
-fn PASS(uv: vec2f, scale: f32, angle: f32, shift: f32, crush: f32) -> vec4f {
+fn innerUv(p: vec2f, k: f32, angle: f32, shift: f32) -> vec2f {
   let asp = G.res.x / G.res.y;
-  let k = clamp(scale, 0.05, 0.98);
-  let cr = clamp(crush, 0.0, 1.0);
-  let res = vec2f(textureDimensions(T1));
-  // bitcrush, part 1: the reflection is read in blocks of screen pixels
-  let block = mix(1.0, 10.0, cr);
-  let snapped = (floor(uv * res / block) + 0.5) * block / res;
-  var q = snapped - vec2f(0.5 + shift, 0.5);
+  var q = p - vec2f(0.5 + shift, 0.5);
   q.x *= asp;
   let c = cos(angle);
   let s = sin(angle);
   q = vec2f(c * q.x + s * q.y, -s * q.x + c * q.y) / k;
   q.x /= asp;
-  let inner = q + 0.5;
+  return q + 0.5;
+}
+
+fn PASS(uv: vec2f, scale: f32, angle: f32, shift: f32, crush: f32) -> vec4f {
+  let k = clamp(scale, 0.05, 0.98);
+  // eased: the low end of the gesture gives the finest control
+  let cr = clamp(crush, 0.0, 1.0);
+  let e = cr * cr;
+  let inner = innerUv(uv, k, angle, shift);
   if (all(inner > vec2f(0.0)) && all(inner < vec2f(1.0))) {
     // each reflection is mirrored, like a mirror facing a mirror
-    let r = textureSampleLevel(T1, samp, vec2f(1.0 - inner.x, inner.y), 0.0).rgb;
-    // bitcrush, part 2: fewer colour levels, a little darker per bounce
-    let levels = mix(32.0, 3.0, cr);
-    return vec4f(floor(r * levels + 0.5) / levels * 0.96, 1.0);
+    let clean = textureSampleLevel(T1, samp, vec2f(1.0 - inner.x, inner.y), 0.0).rgb;
+    // bitcrushed copy: read in blocks of screen pixels, fewer colour levels
+    let res = vec2f(textureDimensions(T1));
+    let block = mix(1.0, 6.0, e);
+    let snapped = innerUv((floor(uv * res / block) + 0.5) * block / res, k, angle, shift);
+    let levels = mix(48.0, 4.0, e);
+    let raw = textureSampleLevel(T1, samp, vec2f(1.0 - snapped.x, snapped.y), 0.0).rgb;
+    let crushed = floor(raw * levels + 0.5) / levels;
+    // each bounce only takes part of the damage, so it builds up gradually
+    // towards the back of the tunnel instead of hitting the first reflection
+    let w = mix(0.12, 0.55, cr);
+    return vec4f(mix(clean, crushed, w) * 0.985, 1.0);
   }
   return textureSampleLevel(T0, samp, uv, 0.0);
 }`,
