@@ -21,6 +21,10 @@ Fonts are bundled from `@fontsource/*` (imported in `src/main.ts`); there are no
 
 `?source=test` forces the animated test card instead of the camera (desktop, no webcam).
 
+### Deployment
+
+Live at https://missingtexturelab.github.io/HackingMyCamera/ (repo `MissingTextureLab/HackingMyCamera`, public). Every push to `main` runs `.github/workflows/pages.yml`: tests, `pnpm build:pages` (base `/HackingMyCamera/`), deploy. Install on the phone from Chrome: ⋮ → Install app.
+
 ### Testing on the phone (camera needs HTTPS)
 
 ```sh
