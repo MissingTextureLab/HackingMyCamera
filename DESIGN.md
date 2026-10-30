@@ -129,7 +129,7 @@ Cada efecto trata una sola cuestión de lo visual. Si dos efectos responden a la
 | FX-07 | TRAMA | Imprenta de cómic | sombras en tinta sólida, trama fina y suave en los medios, contornos entintados, papel con manchas, fibras y grano; plancha de color desregistrada que salta al disparar |
 | FX-12 | ESPEJO | Simetría | espejo en abismo: reflejos anidados y espejados, sin marco; cada rebote los degrada con bitcrush (bloques y menos color) |
 | FX-14 | HALO | Luz | pintar con luz: solo lo brillante deja estela, como una exposición larga; la estela fresca es verde y la vieja pasa a morado y se deshace en humo; al hacer foto o grabar, un fogonazo la borra y empieza una exposición nueva |
-| FX-19 | MUDA | Memoria | solo lo que se mueve deja fantasmas de color, que fluyen sobre un relieve de ruido; lo quieto queda nítido |
+| FX-19 | MUDA | Memoria | solo lo que se mueve deja fantasmas de color, que fluyen sobre un relieve de ruido y se arrastran en bloques siguiendo el movimiento real (datamosh); lo quieto queda nítido |
 | FX-22 | BARRIDO | Tiempo | slit-scan con rendija horizontal, vertical o radial |
 | FX-31 | LETRA | Tipografía | la imagen escrita con caracteres reales de Martian Mono, ordenados por densidad |
 | FX-44 | SEÑAL | Vídeo analógico | tracking, nieve, sangrado; tocar la imagen hace perder la sincronía (la imagen rueda) |

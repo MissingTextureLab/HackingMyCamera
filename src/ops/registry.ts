@@ -672,6 +672,79 @@ fn op_aging(c: vec4f, knee: f32) -> vec4f {
 }`,
 });
 
+// Motion: how far the image moved since `in1` (usually the previous camera
+// frame, kept in a buffer), per 8 px block, in pixels per frame (rg, signed).
+// Lucas-Kanade on a 4x4 window around each block; flat or still areas give 0.
+def({
+  name: 'flow',
+  kind: 'filter',
+  inputs: 2,
+  params: [],
+  passes: [
+    {
+      inputs: ['in0', 'in1'],
+      scale: 0.125,
+      wgsl: /* wgsl */ `
+fn PASS(uv: vec2f) -> vec4f {
+  let px = 1.0 / vec2f(textureDimensions(T0));
+  let dx = vec2f(3.0 * px.x, 0.0);
+  let dy = vec2f(0.0, 3.0 * px.y);
+  var sxx = 0.0;
+  var sxy = 0.0;
+  var syy = 0.0;
+  var sxt = 0.0;
+  var syt = 0.0;
+  var stt = 0.0;
+  for (var j = 0; j < 4; j++) {
+    for (var i = 0; i < 4; i++) {
+      let q = uv + (vec2f(f32(i), f32(j)) - 1.5) * 3.0 * px;
+      let ix = (lumaAt(T0, q + dx) - lumaAt(T0, q - dx)) / 6.0;
+      let iy = (lumaAt(T0, q + dy) - lumaAt(T0, q - dy)) / 6.0;
+      let it = lumaAt(T0, q) - lumaAt(T1, q);
+      sxx += ix * ix;
+      sxy += ix * iy;
+      syy += iy * iy;
+      sxt += ix * it;
+      syt += iy * it;
+      stt += it * it;
+    }
+  }
+  // sensor noise is not motion
+  if (stt < 16.0 * 0.012 * 0.012) { return vec4f(0.0, 0.0, 0.0, 1.0); }
+  let a = sxx + 1e-4;
+  let d = syy + 1e-4;
+  var v = -vec2f(d * sxt - sxy * syt, a * syt - sxy * sxt) / (a * d - sxy * sxy);
+  let m = length(v);
+  if (m > 12.0) { v *= 12.0 / m; }
+  return vec4f(v, 0.0, 1.0);
+}`,
+    },
+  ],
+});
+
+// Datamosh: drags the image along a motion map (from flow) a whole block at a
+// time, like a codec's motion vectors applied to the wrong picture. On a
+// feedback buffer the blocks pile up. in0 = image, in1 = motion map.
+def({
+  name: 'mosh',
+  kind: 'filter',
+  inputs: 2,
+  params: [p('drag', 1.5), p('block', 16)],
+  passes: [
+    {
+      inputs: ['in0', 'in1'],
+      wgsl: /* wgsl */ `
+fn PASS(uv: vec2f, drag: f32, block: f32) -> vec4f {
+  let res = vec2f(textureDimensions(T0));
+  let b = max(block, 1.0);
+  let cell = (floor(uv * res / b) + 0.5) * b / res;
+  let v = textureSampleLevel(T1, samp, cell, 0.0).xy;
+  return textureSampleLevel(T0, samp, uv - v * drag / res, 0.0);
+}`,
+    },
+  ],
+});
+
 // Symmetry: facing mirrors. The previous frame, shrunk by `scale`, turned by
 // `angle` and mirrored, sits on top of the live image with no frame; feeding
 // back, it nests forever. Every bounce wears it down like a bad digital copy:

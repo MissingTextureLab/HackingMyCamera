@@ -50,18 +50,22 @@ const halo = effect({ id: 'halo', code: '14', name: 'Halo' }, (m) => {
 
 // Memory: only what moves is remembered. Still parts stay sharp; moving
 // things leave coloured ghosts that flow over a noise relief and fade.
-// "Moving" = differs from a background that slowly adapts (o1).
+// "Moving" = differs from a background that slowly adapts (o1). The ghosts
+// are also datamoshed: dragged in blocks along the real motion, measured
+// against the previous camera frame (o3).
 const muda = effect({ id: 'muda', code: '19', name: 'Muda' }, (m) => {
   o(1).blend(cam(), 0.06).out(1);
+  cam().out(3);
   const moving = cam().diff(o(1)).thresh(0.1, 0.05);
   const ink = cam().citrink(1, 0, 3).mult(moving, 1);
   const relief = noise(2, 0.15);
-  const flow = o(2).displace(relief, 6);
+  const motion = cam().flow(o(3));
+  const flow = o(2).displace(relief, 6).mosh(motion, 1.5, 16);
   const fade = flow.gain(0.96);
   const ghosts = fade.lighten(ink, 1);
   ghosts.out(2);
   m.macro('MEMORIA', fade, 'amount', 0.8, 0.99);
-  m.macro('FLUJO', flow, 'amount', 0, 20);
+  m.macro('ARRASTRE', flow, 'drag', 0, 4);
   m.macro('SENSIBILIDAD', moving, 'threshold', 0.3, 0.02);
   m.mod(relief, 'speed', lfo('sine', 0.05), 0.05, 0.4);
   cam().lighten(ghosts, 1).out(0);

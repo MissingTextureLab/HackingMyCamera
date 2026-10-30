@@ -97,6 +97,10 @@ export class Chain {
   lighten(other: Chain, amount?: number) { return this.bin('lighten', other, [amount]); }
   /** Feedback smoke: the image rises and swirls a little every frame, blurring as it ages. */
   smoke(amount?: number) { return this.un('smoke', [amount]); }
+  /** Motion since `previous` (usually the last camera frame in a buffer): px per frame per 8 px block. */
+  flow(previous: Chain) { return this.bin('flow', previous, []); }
+  /** Datamosh: drags this along a `motion` map (from flow), a `block` of pixels at a time. */
+  mosh(motion: Chain, drag?: number, block?: number) { return this.bin('mosh', motion, [drag, block]); }
   /** Colours a grey freshness buffer by age: green while fresh, dim purple past `knee`. */
   aging(knee?: number) { return this.un('aging', [knee]); }
 
