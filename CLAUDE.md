@@ -12,8 +12,12 @@ Camera-instrument PWA for Android: the phone camera runs through our own WebGPU 
 pnpm dev          # vite on :5173 (host exposed for the phone)
 pnpm test         # vitest (engine: DSL + compiler)
 pnpm check        # svelte-check
-pnpm build
+pnpm build        # PWA: manifest + Workbox service worker (precaches app, worker and fonts)
+pnpm preview      # serve the build (the service worker only runs here, not in dev)
+node scripts/icons.mjs   # re-rasterize public/icon-*.png after changing the icon (keep in sync with public/icon.svg)
 ```
+
+Fonts are bundled from `@fontsource/*` (imported in `src/main.ts`); there are no requests to Google Fonts, so the installed app works offline.
 
 `?source=test` forces the animated test card instead of the camera (desktop, no webcam).
 

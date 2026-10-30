@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Two misregistered plates (acid over flash) with a lens cut through them.
+       Everything sits inside the maskable safe zone (r = 204 from the centre). -->
+  <rect width="512" height="512" fill="#201533"/>
+  <rect x="178" y="150" width="200" height="250" fill="#fcf660"/>
+  <rect x="134" y="112" width="200" height="250" fill="#b2d942"/>
+  <circle cx="256" cy="256" r="78" fill="#201533"/>
+  <circle cx="256" cy="256" r="30" fill="#52c33f"/>
+</svg>

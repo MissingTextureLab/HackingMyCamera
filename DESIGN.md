@@ -70,6 +70,10 @@ Reglas:
 - **Sin sombras.** La separación se hace con `panel-deep` o con un trazo de 1 px en `lagoon`.
 - Los controles viven en el tercio inferior, al alcance del pulgar, alineados a la retícula. El centro del visor está prohibido para la interfaz.
 
+## Icono de la app
+
+Dos planchas desregistradas (`acid` sobre `flash`) con un objetivo recortado en `viewfinder` y el centro en `grass`, sobre fondo `viewfinder`. Es la firma de la portada reducida a icono, y cabe en la zona segura de los iconos adaptables de Android. Fuente: `public/icon.svg`; los PNG se generan con `node scripts/icons.mjs`.
+
 ## Iconografía
 
 No hay librería de iconos. Cada control es una palabra en `label` o un pictograma dibujado con tres primitivas (círculo, cuadrado, línea) en una caja de 16 px, trazo de 2 px, extremos rectos. Si un pictograma necesita más de cuatro primitivas, se usa una palabra.

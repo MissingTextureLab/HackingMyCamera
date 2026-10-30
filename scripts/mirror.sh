@@ -9,4 +9,5 @@ target="$1"
 here="$(cd "$(dirname "$0")/.." && pwd)"
 mkdir -p "$target"
 (cd "$here" && tar --exclude=node_modules --exclude=.git --exclude=dist -cf - .) | (cd "$target" && tar -xf -)
-[ -d "$target/node_modules" ] || (cd "$target" && pnpm install --frozen-lockfile)
+# fast when nothing changed; picks up new dependencies otherwise
+(cd "$target" && pnpm install --frozen-lockfile --reporter=silent)

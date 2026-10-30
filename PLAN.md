@@ -15,6 +15,9 @@ Estado (2026-10-30):
   - tres escenas: RELIEVE, NUBE y CIUDAD;
   - señal `motion`: inclinación del móvil.
   - La señal `image` (luminancia y movimiento de la cámara) queda pendiente.
+- **H4 en curso:**
+  - Hecho y verificado con el build de producción: PWA instalable (manifest a pantalla completa en vertical, icono propio en la identidad), service worker que precachea app, worker y fuentes, y fuentes empaquetadas sin Google Fonts. Funciona sin conexión.
+  - Pendiente: despliegue estable para instalarla en el móvil y cajón de parámetros.
 - **Fuera del alcance por decisión del usuario:** micrófono, tanto como señal como audio en la grabación.
 - Identidad visual: `DESIGN.md`.
 

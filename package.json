@@ -8,11 +8,16 @@
     "dev:tunnel": "vite --mode tunnel --port 5174 --strictPort",
     "tunnel": "cloudflared tunnel --url http://localhost:5174",
     "build": "vite build",
+    "build:pages": "vite build --mode pages",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run"
   },
   "dependencies": {
+    "@fontsource/doto": "^5.3.0",
+    "@fontsource/martian-mono": "^5.3.0",
+    "@fontsource/rubik-glitch": "^5.3.0",
+    "@fontsource/rubik-glitch-pop": "^5.3.0",
     "mediabunny": "^1.64.0"
   },
   "devDependencies": {
@@ -23,6 +28,7 @@
     "svelte-check": "^4.7.7",
     "typescript": "^5.9.3",
     "vite": "^8.3.5",
+    "vite-plugin-pwa": "^2.0.0",
     "vitest": "^4.1.12"
   }
 }
