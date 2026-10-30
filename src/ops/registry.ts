@@ -663,9 +663,10 @@ fn innerUv(p: vec2f, k: f32, angle: f32, shift: f32) -> vec2f {
 
 fn PASS(uv: vec2f, scale: f32, angle: f32, shift: f32, crush: f32) -> vec4f {
   let k = clamp(scale, 0.05, 0.98);
-  // eased: the low end of the gesture gives the finest control
+  // the first quarter of the gesture is fine control (up to 15%); the other
+  // three quarters do the real damage
   let cr = clamp(crush, 0.0, 1.0);
-  let e = cr * cr;
+  let e = select(cr * 0.6, 0.15 + (cr - 0.25) / 0.75 * 0.85, cr > 0.25);
   let inner = innerUv(uv, k, angle, shift);
   if (all(inner > vec2f(0.0)) && all(inner < vec2f(1.0))) {
     // each reflection is mirrored, like a mirror facing a mirror
@@ -679,7 +680,7 @@ fn PASS(uv: vec2f, scale: f32, angle: f32, shift: f32, crush: f32) -> vec4f {
     let crushed = floor(raw * levels + 0.5) / levels;
     // each bounce only takes part of the damage, so it builds up gradually
     // towards the back of the tunnel instead of hitting the first reflection
-    let w = mix(0.12, 0.55, cr);
+    let w = mix(0.12, 0.55, e);
     return vec4f(mix(clean, crushed, w) * 0.985, 1.0);
   }
   return textureSampleLevel(T0, samp, uv, 0.0);
