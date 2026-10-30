@@ -10,7 +10,7 @@ const minimal = () => ({
   nodes: { c: { op: 'camera' }, h: { op: 'hue', in: ['c'], params: { amount: 0.2 } } },
   outputs: { o0: 'h' },
   display: 'o0',
-  macros: [{ poles: ['FRÍO', 'CÁLIDO'], targets: [{ target: 'h.amount', range: [0, 1] }], at: 0.5 }],
+  macros: [{ label: 'TONO', target: 'h.amount', range: [0, 1] }],
   mods: [],
 });
 
@@ -65,11 +65,7 @@ describe('validateEffect', () => {
     const p = problems({
       ...g,
       nodes: { ...g.nodes, b: { op: 'buffer', params: { index: 0 } } },
-      macros: [
-        { poles: ['A', 'B'], targets: [{ target: 'h.amount', range: [0] }] },
-        { poles: ['A', 'B'], targets: [{ target: 'b.index', range: [0, 3] }] },
-        { poles: ['SOLO'], targets: [] },
-      ],
+      macros: [{ label: 'TONO', target: 'h.amount', range: [0] }, { label: 'B', target: 'b.index', range: [0, 3] }],
       mods: [
         { target: 'h.amount', source: { kind: 'lfo', shape: 'sine', rate: 1 }, range: [0, 1] },
         { target: 'h.amount', source: { kind: 'lfo', shape: 'wobble', rate: 1 }, range: [0, 1] },
@@ -78,10 +74,8 @@ describe('validateEffect', () => {
     });
     expect(p).toEqual(
       expect.arrayContaining([
-        expect.stringMatching(/^macros\[0\]\.targets\[0\]\.range/),
-        expect.stringMatching(/^macros\[1\]\.targets\[0\]\.target: "index" is fixed/),
-        expect.stringMatching(/^macros\[2\]\.poles/),
-        expect.stringMatching(/^macros\[2\]\.targets/),
+        expect.stringMatching(/^macros\[0\]\.range/),
+        expect.stringMatching(/^macros\[1\]\.target: "index" is fixed/),
         expect.stringMatching(/^mods\[1\]\.source\.shape/),
         expect.stringMatching(/^mods\[2\]\.source\.channel/),
         expect.stringMatching(/^mods\[2\]\.smooth/),

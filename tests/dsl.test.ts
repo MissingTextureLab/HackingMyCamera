@@ -19,11 +19,11 @@ describe('dsl', () => {
   it('serializes to plain JSON', () => {
     const g = effect({ id: 't', code: '00', name: 'Test' }, (m) => {
       const b = o(0).scale(1.01).blend(cam(), 0.1);
-      m.macro(['POCO', 'MUCHO'], [[b, 'amount', 0, 1]]);
+      m.macro('MIX', b, 'amount', 0, 1);
       b.out(0);
     });
     expect(JSON.parse(JSON.stringify(g))).toEqual(g);
-    expect(g.macros).toEqual([{ poles: ['POCO', 'MUCHO'], at: 0.5, targets: [{ target: `${g.outputs.o0}.amount`, range: [0, 1] }] }]);
+    expect(g.macros).toEqual([{ label: 'MIX', target: `${g.outputs.o0}.amount`, range: [0, 1] }]);
   });
 
   it('rejects calls outside effect() and unknown macro params', () => {
@@ -31,7 +31,7 @@ describe('dsl', () => {
     expect(() =>
       effect({ id: 't', code: '00', name: 'T' }, (m) => {
         const c = cam().hue();
-        m.macro(['X', 'Y'], [[c, 'nope', 0, 1]]);
+        m.macro('X', c, 'nope', 0, 1);
         c.out(0);
       }),
     ).toThrow(/no param "nope"/);

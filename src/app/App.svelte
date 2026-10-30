@@ -120,7 +120,7 @@
       case 'effect':
         if (m.id === effectId) {
           macros = m.macros;
-          defaults = m.macros.map((x) => x.at);
+          defaults = m.macros.map((x) => x.value);
         }
         break;
       case 'photo':
@@ -208,13 +208,14 @@
     startCamera();
   }
 
-  // moves macro i to a position between its poles: every target param follows
-  function setMacro(i: number, position: number) {
+  function setMacro(i: number, value: number) {
     const m = macros[i];
     if (!m) return;
-    const p = Math.min(1, Math.max(0, position));
-    macros[i] = { ...m, position: p };
-    for (const t of m.targets) send({ type: 'param', slot: t.slot, value: t.from + (t.to - t.from) * p });
+    const lo = Math.min(m.min, m.max);
+    const hi = Math.max(m.min, m.max);
+    const v = Math.min(hi, Math.max(lo, value));
+    macros[i] = { ...m, value: v };
+    send({ type: 'param', slot: m.slot, value: v });
   }
 
   function applyZoom(total: number) {
@@ -227,19 +228,21 @@
       onStart(kind) {
         gesture = kind;
         pinchFrom = zoom;
-        twistFrom = macros[2]?.position ?? 0;
+        twistFrom = macros[2]?.value ?? 0;
       },
       onDrag(x, y) {
         // macros A/B follow the finger: x → A, inverted y → B
-        setMacro(0, x);
-        setMacro(1, y);
+        [x, y].forEach((t, i) => {
+          const m = macros[i];
+          if (m) setMacro(i, m.min + (m.max - m.min) * t);
+        });
       },
       onPinch(scale) {
         applyZoom(pinchFrom * scale);
       },
       onTwist(radians) {
-        // half a turn crosses the whole way between the poles
-        setMacro(2, twistFrom + radians / Math.PI);
+        const m = macros[2];
+        if (m) setMacro(2, twistFrom + (radians / Math.PI) * (m.max - m.min));
       },
       onDoubleTap() {
         defaults.forEach((v, i) => setMacro(i, v));
@@ -316,6 +319,7 @@
     };
   });
 
+  const fmt = (v: number) => v.toFixed(2);
   const recClock = $derived(`${String(Math.floor(recSeconds / 60)).padStart(2, '0')}:${String(recSeconds % 60).padStart(2, '0')}`);
   const lens = $derived(source === 'test' ? 'TEST' : facing === 'user' ? 'FRON' : 'TRAS');
 </script>
@@ -343,21 +347,13 @@
   {#if stamp}<div class="stamp">{stamp}</div>{/if}
   {#if notice}<div class="notice label">{notice}</div>{/if}
 
-  {#snippet axis(m: MacroInfo, key: string)}
-    <div class="cell axis">
-      <span class="k label">{key}</span>
-      <div class="poles label">
-        <span class:on={m.position < 0.5}>{m.poles[0]}</span>
-        <span class="track"><i style:left="{m.position * 100}%"></i></span>
-        <span class:on={m.position >= 0.5}>{m.poles[1]}</span>
-      </div>
-    </div>
-  {/snippet}
-
   {#if gesture === 'drag' && macros.length}
     <div class="readout">
-      {#each macros.slice(0, 2) as m, i (i)}
-        {@render axis(m, i === 0 ? 'A' : 'B')}
+      {#each macros.slice(0, 2) as m, i (m.slot)}
+        <div class="cell" class:a={i === 0}>
+          <span class="k label">{i === 0 ? 'A' : 'B'} / {m.label}</span>
+          <span class="v">{fmt(m.value)}</span>
+        </div>
       {/each}
     </div>
   {:else if gesture === 'pinch'}
@@ -366,7 +362,12 @@
         <span class="k label">ZOOM</span>
         <span class="v">{zoom.toFixed(1)}×</span>
       </div>
-      {#if macros[2]}{@render axis(macros[2], 'C')}{/if}
+      {#if macros[2]}
+        <div class="cell">
+          <span class="k label">C / {macros[2].label}</span>
+          <span class="v">{fmt(macros[2].value)}</span>
+        </div>
+      {/if}
     </div>
   {/if}
 
@@ -543,33 +544,8 @@
     left: var(--space-4);
     bottom: calc(196px + env(safe-area-inset-bottom, 0px));
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
     gap: var(--space-2);
     pointer-events: none;
-  }
-  .axis .poles {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    color: var(--ink-muted);
-  }
-  .axis .poles .on {
-    color: var(--ink);
-  }
-  .track {
-    position: relative;
-    width: 96px;
-    height: 2px;
-    background: var(--lagoon);
-  }
-  .track i {
-    position: absolute;
-    top: -5px;
-    width: 4px;
-    height: 12px;
-    background: var(--acid);
-    transform: translateX(-50%);
   }
   .cell {
     background: var(--panel);

@@ -10,22 +10,11 @@ export interface NodeSpec {
   params?: Record<string, number>;
 }
 
-/** One param a macro moves, from its value at the first pole to the second. */
-export interface MacroTarget {
+export interface Macro {
+  label: string;
   /** "<nodeId>.<param>" */
   target: string;
   range: [number, number];
-}
-
-/**
- * A gesture axis that travels between two named characters (poles), moving
- * several params at once. Neither pole is "off".
- */
-export interface Macro {
-  poles: [string, string];
-  targets: MacroTarget[];
-  /** Resting position, 0 (first pole) … 1 (second pole). */
-  at: number;
 }
 
 export type LfoShape = 'sine' | 'tri' | 'saw' | 'square' | 'random' | 'noise';

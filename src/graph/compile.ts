@@ -62,7 +62,7 @@ export interface CompiledEffect {
   /** Initial uniform contents, MAX_PARAMS long. */
   values: Float32Array;
   display: OutputId;
-  macros: { poles: [string, string]; at: number; targets: { slot: number; from: number; to: number }[] }[];
+  macros: { label: string; slot: number; min: number; max: number }[];
 }
 
 // Binding layout shared by every pass; the runtime mirrors it.
@@ -311,19 +311,10 @@ export function compileEffect(graph: EffectGraph): CompiledEffect {
     throw new Error(`display ${graph.display} is never written`);
   }
 
-  const owned = new Set<string>();
-  const macros = graph.macros.map((m) => ({
-    poles: m.poles,
-    at: m.at,
-    targets: m.targets.map((t) => {
-      if (!(t.target in slots)) throw new Error(`macro ${m.poles.join('/')}: ${t.target} is not a uniform param`);
-      if (owned.has(t.target)) throw new Error(`${t.target} is moved by two macros`);
-      owned.add(t.target);
-      return { slot: slots[t.target], from: t.range[0], to: t.range[1] };
-    }),
-  }));
-  // every macro starts at its resting position
-  for (const m of macros) for (const t of m.targets) values[t.slot] = t.from + (t.to - t.from) * m.at;
+  const macros = graph.macros.map((m) => {
+    if (!(m.target in slots)) throw new Error(`macro "${m.label}": ${m.target} is not a uniform param`);
+    return { label: m.label, slot: slots[m.target], min: m.range[0], max: m.range[1] };
+  });
   for (const mod of graph.mods) {
     if (!(mod.target in slots)) throw new Error(`mod: ${mod.target} is not a uniform param`);
   }

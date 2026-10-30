@@ -1,43 +1,27 @@
 // The gallery: fourteen effects, each about one visual question. Names follow
 // DESIGN.md (catalogue code + one Spanish word).
-//
-// Gestures travel between two named characters (poles), never from "off" to
-// "full": A = drag x, B = drag y (up = second pole), C = two-finger twist.
-// Each axis moves several params at once; `at` is where it rests.
-// Mods move params on their own (LFO), with the finger (touch) or on a shot.
+// Macros: A = drag x, B = drag y, C = two-finger twist.
+// Mods move params on their own (LFO) or with the finger (touch).
 
 import { cam, effect, event, lfo, noise, o, touch } from '../dsl';
 import type { EffectGraph } from '../graph/types';
 
 // Optics: a cinema lens. Bright spots bleed long horizontal streaks; the
-// glass bends and fringes at the edges.
+// glass bends and fringes a little at the edges.
 const lente = effect({ id: 'lente', code: '01', name: 'Lente' }, (m) => {
-  const l = cam().lens(1.5, 0.3, 0.45);
-  const f = l.flare(0.8, 500, 1.2);
-  m.macro(['LIMPIA', 'CINE'], [
-    [f, 'intensity', 0.4, 2.4],
-    [f, 'reach', 150, 1100],
-    [l, 'aberration', 0.5, 3],
-  ]);
-  m.macro(['BURBUJA', 'PLANA'], [
-    [l, 'barrel', 1.1, -0.1],
-    [l, 'vignette', 0.85, 0.2],
-  ]);
-  m.macro(['TODO', 'SOLO LUCES'], [[f, 'threshold', 0.55, 0.95]]);
+  const f = cam().lens(1.2, 0.18, 0.45).flare(0.85, 400, 1);
+  m.macro('DESTELLO', f, 'intensity', 0, 3);
+  m.macro('LARGO', f, 'reach', 60, 1200);
+  m.macro('UMBRAL', f, 'threshold', 0.95, 0.4);
   f.out(0);
 });
 
 // Print: two-ink halftone, out of register; shooting knocks the plates apart.
 const trama = effect({ id: 'trama', code: '07', name: 'Trama' }, (m) => {
-  const c = cam().contrast(1.15);
-  const r = c.riso(3, 7, 1.1, 0, 0, 0);
-  m.macro(['PERIÓDICO', 'CARTEL'], [
-    [r, 'cell', 4, 16],
-    [r, 'offset', 1, 12],
-    [r, 'gain', 1, 1.4],
-  ]);
-  m.macro(['PUNTO', 'CRUZ'], [[r, 'screen', 0, 2.99]], 0);
-  m.macro(['PÁLIDA', 'ENTINTADA'], [[c, 'amount', 0.9, 1.5]]);
+  const r = cam().contrast(1.15).riso(3, 7, 1.1, 0, 0);
+  m.macro('REGISTRO', r, 'offset', 0, 14);
+  m.macro('PUNTO', r, 'cell', 3, 18);
+  m.macro('VARIANTE', r, 'variant', 0, 11.99);
   m.mod(r, 'jolt', event('shot'), 0, 18);
   r.out(0);
 });
@@ -46,9 +30,9 @@ const trama = effect({ id: 'trama', code: '07', name: 'Trama' }, (m) => {
 // last, mirrored, with an acid frame.
 const espejo = effect({ id: 'espejo', code: '12', name: 'Espejo' }, (m) => {
   const a = cam().abyss(o(0), 0.78, 0, 0);
-  m.macro(['PASILLO', 'ABISMO'], [[a, 'scale', 0.9, 0.6]]);
-  m.macro(['RECTO', 'ESPIRAL'], [[a, 'angle', 0, 0.45]], 0.3);
-  m.macro(['IZQUIERDA', 'DERECHA'], [[a, 'shift', -0.22, 0.22]]);
+  m.macro('PROFUNDIDAD', a, 'scale', 0.55, 0.92);
+  m.macro('GIRO', a, 'angle', -0.5, 0.5);
+  m.macro('EJE', a, 'shift', -0.25, 0.25);
   a.out(0);
 });
 
@@ -61,14 +45,9 @@ const halo = effect({ id: 'halo', code: '14', name: 'Halo' }, (m) => {
   const trails = fade.lighten(lights, 1);
   trails.out(1);
   const glow = trails.bloom(0.3, 1.2, 10);
-  m.macro(['VELA', 'NEÓN'], [
-    [fade, 'amount', 0.9, 0.99],
-    [glow, 'intensity', 0.6, 2.4],
-  ]);
-  m.macro(['NIEBLA', 'ESTRELLA'], [
-    [glow, 'radius', 18, 4],
-    [mask, 'threshold', 0.6, 0.92],
-  ]);
+  m.macro('ESTELA', fade, 'amount', 0.85, 0.995);
+  m.macro('UMBRAL', mask, 'threshold', 0.95, 0.5);
+  m.macro('BRILLO', glow, 'intensity', 0, 3);
   cam().gain(0.7).add(glow, 1).out(0);
 });
 
@@ -76,8 +55,7 @@ const halo = effect({ id: 'halo', code: '14', name: 'Halo' }, (m) => {
 // things leave coloured ghosts that flow over a noise relief and fade.
 // "Moving" = differs from a background that slowly adapts (o1).
 const muda = effect({ id: 'muda', code: '19', name: 'Muda' }, (m) => {
-  const bg = o(1).blend(cam(), 0.06);
-  bg.out(1);
+  o(1).blend(cam(), 0.06).out(1);
   const moving = cam().diff(o(1)).thresh(0.1, 0.05);
   const ink = cam().citrink(1, 0, 3).mult(moving, 1);
   const relief = noise(2, 0.15);
@@ -85,15 +63,9 @@ const muda = effect({ id: 'muda', code: '19', name: 'Muda' }, (m) => {
   const fade = flow.gain(0.96);
   const ghosts = fade.lighten(ink, 1);
   ghosts.out(2);
-  m.macro(['BRISA', 'RIADA'], [
-    [fade, 'amount', 0.9, 0.985],
-    [flow, 'amount', 2, 18],
-  ]);
-  m.macro(['TODO', 'LO QUE CORRE'], [
-    [moving, 'threshold', 0.03, 0.25],
-    [bg, 'amount', 0.02, 0.15],
-  ]);
-  m.macro(['GRANDE', 'MENUDO'], [[relief, 'scale', 0.8, 6]]);
+  m.macro('MEMORIA', fade, 'amount', 0.8, 0.99);
+  m.macro('FLUJO', flow, 'amount', 0, 20);
+  m.macro('SENSIBILIDAD', moving, 'threshold', 0.3, 0.02);
   m.mod(relief, 'speed', lfo('sine', 0.05), 0.05, 0.4);
   cam().lighten(ghosts, 1).out(0);
 });
@@ -101,42 +73,35 @@ const muda = effect({ id: 'muda', code: '19', name: 'Muda' }, (m) => {
 // Time: slit-scan. Each row (or column, or ring) is an earlier moment.
 const barrido = effect({ id: 'barrido', code: '22', name: 'Barrido' }, (m) => {
   const s = o(0).slit(cam(), 2, 0.72, 0);
-  m.macro(['LENTO', 'RÁPIDO'], [[s, 'speed', 0.6, 9]], 0.3);
-  m.macro(['ABAJO', 'ARRIBA'], [[s, 'line', 0.9, 0.25]], 0.3);
-  m.macro(['HORIZONTAL', 'RADIAL'], [[s, 'shape', 0, 2.99]], 0);
+  m.macro('VELOCIDAD', s, 'speed', 0.5, 10);
+  m.macro('LÍNEA', s, 'line', 0.2, 0.95);
+  m.macro('FORMA', s, 'shape', 0, 2.99);
   s.out(0);
 });
 
 // Type: the image written in Martian Mono, the identity's own face.
 const letra = effect({ id: 'letra', code: '31', name: 'Letra' }, (m) => {
   const a = cam().ascii(12, 1.3);
-  m.macro(['MINÚSCULA', 'TITULAR'], [[a, 'cell', 6, 30]], 0.25);
-  m.macro(['SUAVE', 'DURA'], [[a, 'contrast', 0.7, 2.6]]);
+  m.macro('CUERPO', a, 'cell', 6, 32);
+  m.macro('CONTRASTE', a, 'contrast', 0.6, 2.6);
   a.out(0);
 });
 
 // Tessellation: stained glass, fine where the image is busy.
 const vitral = effect({ id: 'vitral', code: '36', name: 'Vitral' }, (m) => {
   const v = cam().vitral(10, 0.08, 0.5, 0.6);
-  m.macro(['CATEDRAL', 'MOSAICO'], [
-    [v, 'scale', 5, 28],
-    [v, 'border', 0.14, 0.05],
-  ], 0.35);
-  m.macro(['REGULAR', 'ORGÁNICO'], [
-    [v, 'detail', 0.1, 0.9],
-    [v, 'jitter', 0.2, 0.9],
-  ]);
+  m.macro('TESELAS', v, 'scale', 4, 30);
+  m.macro('PLOMO', v, 'border', 0.01, 0.3);
+  m.macro('DETALLE', v, 'detail', 0, 1);
   v.out(0);
 });
 
 // Signal: analogue video. Touch the image and the sync goes.
 const senal = effect({ id: 'senal', code: '44', name: 'Señal' }, (m) => {
   const v = cam().vhs(0.5, 0.6, 1.2, 0);
-  m.macro(['NUEVA', 'GASTADA'], [
-    [v, 'tracking', 0.1, 1.3],
-    [v, 'noise', 0.2, 1.3],
-  ], 0.4);
-  m.macro(['NÍTIDA', 'SANGRANTE'], [[v, 'bleed', 0.3, 4]], 0.3);
+  m.macro('TRACKING', v, 'tracking', 0, 1.5);
+  m.macro('SANGRADO', v, 'bleed', 0, 4);
+  m.macro('RUIDO', v, 'noise', 0, 1.5);
   m.mod(v, 'desync', touch('down'), 0, 1, { smooth: 0.85 });
   v.out(0);
 });
@@ -145,9 +110,9 @@ const senal = effect({ id: 'senal', code: '44', name: 'Señal' }, (m) => {
 // sorted by brightness, on the GPU.
 const orden = effect({ id: 'orden', code: '50', name: 'Orden' }, (m) => {
   const s = cam().sort(0.35, 1, 0);
-  m.macro(['CHISPAS', 'CASCADA'], [[s, 'low', 0.85, 0.1]]);
-  m.macro(['SUBE', 'BAJA'], [[s, 'dir', 0, 1]], 0);
-  m.macro(['SIN LUCES', 'CON LUCES'], [[s, 'high', 0.6, 1]], 1);
+  m.macro('UMBRAL', s, 'low', 0.9, 0.05);
+  m.macro('TECHO', s, 'high', 0.4, 1);
+  m.macro('SENTIDO', s, 'dir', 0, 1);
   s.out(0);
 });
 
@@ -157,14 +122,9 @@ const orden = effect({ id: 'orden', code: '50', name: 'Orden' }, (m) => {
 // Low and frontal, like the Unknown Pleasures cover.
 const relieve = effect({ id: 'relieve', code: '60', name: 'Relieve' }, (m) => {
   const r = cam().blur(3).relief(0.5, 0, 0.3, 3, 1.6, 60);
-  m.macro(['LLANURA', 'CORDILLERA'], [
-    [r, 'height', 0.15, 1.1],
-    [r, 'pitch', 0.22, 0.45],
-  ], 0.4);
-  m.macro(['FINO', 'GRUESO'], [
-    [r, 'rows', 140, 18],
-    [r, 'thickness', 1, 3.5],
-  ]);
+  m.macro('ALTURA', r, 'height', 0, 1.2);
+  m.macro('LÍNEAS', r, 'rows', 12, 140);
+  m.macro('TRAZO', r, 'thickness', 0.5, 5);
   m.mod(r, 'yaw', lfo('sine', 0.03), -0.08, 0.08);
   r.out(0);
 });
@@ -172,9 +132,9 @@ const relieve = effect({ id: 'relieve', code: '60', name: 'Relieve' }, (m) => {
 // Volume: the camera as a cloud of points, seen three-quarters, drifting.
 const nube = effect({ id: 'nube', code: '63', name: 'Nube' }, (m) => {
   const c = cam().cloud(0.9, 3, 0.5, 0.18, 2.7, 0.05);
-  m.macro(['POLVO', 'CONFETI'], [[c, 'size', 1.5, 8]], 0.3);
-  m.macro(['PLANA', 'HONDA'], [[c, 'depth', 0.2, 2.4]], 0.35);
-  m.macro(['QUIETA', 'ENJAMBRE'], [[c, 'drift', 0, 0.3]], 0.2);
+  m.macro('PROFUNDIDAD', c, 'depth', 0, 2.5);
+  m.macro('TAMAÑO', c, 'size', 1, 10);
+  m.macro('DERIVA', c, 'drift', 0, 0.3);
   m.mod(c, 'yaw', lfo('sine', 0.025), 0.42, 0.58);
   c.out(0);
 });
@@ -182,11 +142,9 @@ const nube = effect({ id: 'nube', code: '63', name: 'Nube' }, (m) => {
 // Mass: a city of blocks, as tall as the image is bright. Isometric.
 const ciudad = effect({ id: 'ciudad', code: '66', name: 'Ciudad' }, (m) => {
   const c = cam().blur(6).city(0.8, 0.785, 0.6155, 1.7, 0.15);
-  m.macro(['PUEBLO', 'METRÓPOLIS'], [
-    [c, 'height', 0.3, 2],
-    [c, 'gap', 0.35, 0.05],
-  ], 0.4);
-  m.macro(['MAQUETA', 'CALLE'], [[c, 'zoom', 3, 0.9]], 0.4);
+  m.macro('ALTURA', c, 'height', 0, 2);
+  m.macro('ZOOM', c, 'zoom', 3, 0.8);
+  m.macro('CALLES', c, 'gap', 0, 0.6);
   m.mod(c, 'yaw', lfo('sine', 0.02), 0.72, 0.85);
   c.out(0);
 });
@@ -196,15 +154,9 @@ const ciudad = effect({ id: 'ciudad', code: '66', name: 'Ciudad' }, (m) => {
 const talla = effect({ id: 'talla', code: '69', name: 'Talla' }, (m) => {
   const t = cam().contrast(1.15).carve(0.6, -0.18, 0.12, 4.2, 1, 1);
   const glow = t.bloom(0.75, 0.9, 10);
-  m.macro(['BAJORRELIEVE', 'PÚAS'], [
-    [t, 'depth', 0.2, 1.3],
-    [t, 'sharp', 0.6, 2.2],
-  ], 0.35);
-  m.macro(['FRENTE', 'PERFIL'], [[t, 'yaw', -0.05, -0.75]], 0.2);
-  m.macro(['MATE', 'BRILLO'], [
-    [glow, 'intensity', 0.2, 1.8],
-    [glow, 'threshold', 0.85, 0.6],
-  ], 0.4);
+  m.macro('PROFUNDIDAD', t, 'depth', 0, 1.6);
+  m.macro('ÁNGULO', t, 'yaw', -0.8, 0.8);
+  m.macro('AFILADO', t, 'sharp', 0.4, 3);
   m.mod(t, 'pitch', lfo('sine', 0.03), 0.05, 0.2);
   glow.out(0);
 });

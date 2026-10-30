@@ -91,10 +91,10 @@ La imagen es la superficie de control. Ningún gesto abre menús.
 
 | Gesto | Hace | Lectura en pantalla |
 |---|---|---|
-| Arrastrar con un dedo | Eje A (horizontal) y eje B (vertical), posición absoluta | los dos polos de cada eje y dónde estás entre ellos |
+| Arrastrar con un dedo | Macro A (horizontal) y macro B (vertical), posición absoluta | `A / ETIQUETA` y `B / ETIQUETA` en Doto mientras dura |
 | Pellizcar | Zoom de 1× a 8×: óptico mientras el móvil lo permita, digital a partir de ahí | `ZOOM 2.4×` |
-| Girar con dos dedos | Eje C, relativo a la posición de partida (media vuelta = de un polo al otro) | los polos de C junto al zoom |
-| Doble toque | Devuelve los ejes a su punto de reposo y el zoom a 1× | — |
+| Girar con dos dedos | Macro C, relativa al valor de partida | `C / ETIQUETA` junto al zoom |
+| Doble toque | Restablece macros y zoom | — |
 | Deslizar la tira de efectos | Recorre la galería | — |
 | Tocar / mantener el obturador | Foto / grabar mientras se mantiene | Sello `GUARDADO` / `REC` |
 | Toque en la etiqueta central | Cambia el revelado: ÁCIDO ↔ MORADO | el nombre del modo |
@@ -104,9 +104,7 @@ Reglas:
 - El navegador nunca hace zoom ni scroll sobre la app; todos los gestos son nuestros (`touch-action: none`).
 - Levantar un dedo de un pellizco no salta a arrastre: hay que soltar y volver a tocar.
 - Las lecturas aparecen solo mientras dura el gesto y se van al soltar.
-- Cada efecto declara como mucho tres ejes (A, B, C).
-- **Un eje no va de "apagado" a "máximo": viaja entre dos caracteres con nombre propio** (`BRISA ↔ RIADA`), y los dos extremos son imágenes con fuerza. Cada eje mueve varios parámetros a la vez, cada uno con su propio rango, y tiene un punto de reposo donde arranca el efecto.
-- Los polos son palabras concretas en mayúsculas, de 1 a 12 caracteres, que se puedan imaginar: `VELA ↔ NEÓN`, nunca `MENOS ↔ MÁS` ni `0 ↔ 100`.
+- Cada efecto declara como mucho tres macros (A, B, C) con nombre propio en mayúsculas.
 
 ## Protocolo de sabotaje
 
@@ -145,24 +143,7 @@ Cada efecto trata una sola cuestión de lo visual. Si dos efectos responden a la
 
 Las escenas 3D (60–69) tienen un encuadre fijo y compuesto, con un balanceo lento para que se lea el volumen. Ya no usan el giroscopio.
 
-Sus ejes, polo a polo (A · B · C):
-
-| Efecto | A | B | C |
-|---|---|---|---|
-| LENTE | LIMPIA ↔ CINE | BURBUJA ↔ PLANA | TODO ↔ SOLO LUCES |
-| TRAMA | PERIÓDICO ↔ CARTEL | PUNTO ↔ CRUZ | PÁLIDA ↔ ENTINTADA |
-| ESPEJO | PASILLO ↔ ABISMO | RECTO ↔ ESPIRAL | IZQUIERDA ↔ DERECHA |
-| HALO | VELA ↔ NEÓN | NIEBLA ↔ ESTRELLA | — |
-| MUDA | BRISA ↔ RIADA | TODO ↔ LO QUE CORRE | GRANDE ↔ MENUDO |
-| BARRIDO | LENTO ↔ RÁPIDO | ABAJO ↔ ARRIBA | HORIZONTAL ↔ RADIAL |
-| LETRA | MINÚSCULA ↔ TITULAR | SUAVE ↔ DURA | — |
-| VITRAL | CATEDRAL ↔ MOSAICO | REGULAR ↔ ORGÁNICO | — |
-| SEÑAL | NUEVA ↔ GASTADA | NÍTIDA ↔ SANGRANTE | — |
-| ORDEN | CHISPAS ↔ CASCADA | SUBE ↔ BAJA | SIN LUCES ↔ CON LUCES |
-| RELIEVE | LLANURA ↔ CORDILLERA | FINO ↔ GRUESO | — |
-| NUBE | POLVO ↔ CONFETI | PLANA ↔ HONDA | QUIETA ↔ ENJAMBRE |
-| CIUDAD | PUEBLO ↔ METRÓPOLIS | MAQUETA ↔ CALLE | — |
-| TALLA | BAJORRELIEVE ↔ PÚAS | FRENTE ↔ PERFIL | MATE ↔ BRILLO |
+Cada efecto expone hasta tres macros con nombre propio (A, B, C; ver *Gestos*).
 
 ## Revelado: el sello de la casa
 

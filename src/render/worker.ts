@@ -107,7 +107,7 @@ async function snapshot() {
 }
 
 function macrosOf(compiled: Awaited<ReturnType<Engine['setEffect']>>): MacroInfo[] {
-  return compiled.macros.map((m) => ({ ...m, position: m.at }));
+  return compiled.macros.map((m) => ({ ...m, value: compiled.values[m.slot] }));
 }
 
 scope.addEventListener('message', async (e) => {

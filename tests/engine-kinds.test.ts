@@ -8,7 +8,7 @@ describe('processor (compute) passes', () => {
   it('compiles to a compute pass writing a storage temp', () => {
     const g = effect({ id: 'p', code: '0', name: 'P' }, (m) => {
       const s = cam().sort(0.3, 1, 0);
-      m.macro(['U', 'V'], [[s, 'low', 0, 1]]);
+      m.macro('U', s, 'low', 0, 1);
       s.hue(0.1).out(0);
     });
     const c = compileEffect(g);

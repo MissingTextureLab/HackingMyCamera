@@ -73,7 +73,7 @@ describe('compileEffect', () => {
   it('renders a 3D scene into a temp with depth and param accessors', () => {
     const g = effect({ id: 's', code: '0', name: 'S' }, (m) => {
       const r = cam().relief(0.7);
-      m.macro(['BAJO', 'ALTO'], [[r, 'height', 0, 1]]);
+      m.macro('H', r, 'height', 0, 1);
       r.hue(0.1).out(0);
     });
     const c = compileEffect(g);
@@ -110,31 +110,6 @@ describe('compileEffect', () => {
     expect(() => compileEffect(base({ a: { op: 'hue', in: ['b'] }, b: { op: 'hue', in: ['a'] } }))).toThrow(/cycle/);
     expect(() => compileEffect(base({ a: { op: 'nope' } }))).toThrow(/unknown op/);
     expect(() => compileEffect(base({ a: { op: 'blend', in: ['b'] }, b: { op: 'camera' } }))).toThrow(/needs 2 input/);
-  });
-
-  it('starts every macro at its resting position, moving all its targets', () => {
-    const g = effect({ id: 'm', code: '0', name: 'M' }, (m) => {
-      const k = cam().kaleid(4);
-      const h = k.hue(0);
-      m.macro(['A', 'B'], [[k, 'sides', 2, 10], [h, 'amount', 1, 0]], 0.25);
-      h.out(0);
-    });
-    const c = compileEffect(g);
-    const [mac] = c.macros;
-    expect(mac.poles).toEqual(['A', 'B']);
-    expect(mac.targets).toHaveLength(2);
-    expect(c.values[mac.targets[0].slot]).toBeCloseTo(4);
-    expect(c.values[mac.targets[1].slot]).toBeCloseTo(0.75);
-  });
-
-  it('refuses a param moved by two macros', () => {
-    const g = effect({ id: 'm', code: '0', name: 'M' }, (m) => {
-      const h = cam().hue(0);
-      m.macro(['A', 'B'], [[h, 'amount', 0, 1]]);
-      m.macro(['C', 'D'], [[h, 'amount', 1, 0]]);
-      h.out(0);
-    });
-    expect(() => compileEffect(g)).toThrow(/moved by two macros/);
   });
 
   it('compiles every preset and resolves its macros', () => {

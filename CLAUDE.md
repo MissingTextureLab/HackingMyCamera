@@ -76,7 +76,7 @@ src/app/       Svelte 5 UI (App, Shutter, EffectStrip) and gestures.ts (drag / p
 - Patching under Documents: when Edit/Write fail with ENOENT on a `.tmp` file (Controlled Folder Access), apply changes with a Node script that edits files in place.
 - WGSL reserved words bite (`target`, `module`, …): avoid them as names in snippets; the engine shows compile errors as an on-screen notice.
 - Effects from outside the code (files, editor) go through `validateEffect`; the worker validates every graph it receives.
-- Macros are axes between two named poles (`m.macro([pole, pole], [[chain, param, from, to], …], at)`): never "off → max", both ends must be strong looks; one axis moves several params; `at` is the resting position the compiler writes into the initial uniforms. A param belongs to at most one macro, and is either a macro target or a mod (signals), never both.
+- A param is either a macro (gestures) or a mod (signals), never both.
 - No microphone: the user doesn't want audio input or audio in recordings.
 - Canvas reads for photo/recording must happen in the same task right after `queue.submit` (see `loop` in the worker).
 - Render size: long side capped at 1920, even dimensions (H.264).

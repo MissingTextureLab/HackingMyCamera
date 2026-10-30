@@ -3,7 +3,7 @@
 //
 //   export default effect({ id: 'espejo', code: '12', name: 'Espejo' }, (m) => {
 //     const k = cam().kaleid(4).modulateRotate(osc(3, 0.1), 0.3);
-//     m.macro(['CUATRO', 'DOCE'], [[k.parent(), 'sides', 4, 12]]);
+//     m.macro('LADOS', k.parent(), 'sides', 2, 12);
 //     k.citrink(1).out(0);
 //   });
 
@@ -113,9 +113,9 @@ export class Chain {
   /** Slides this image along the luminance gradient of `map` (TouchDesigner Displace). */
   displace(map: Chain, amount?: number) { return this.bin('displace', map, [amount]); }
   /** Two-ink halftone on paper, second plate out of register by `offset` px. */
-  /** screen 0-2: dots, lines, cross. pair 0-3: ink pair. */
-  riso(offset?: number, cell?: number, gain?: number, screen?: number, pair?: number, jolt?: number) {
-    return this.un('riso', [offset, cell, gain, screen, pair, jolt]);
+  /** variant 0-11: ink pair (variant % 4) and screen: dots, lines, cross (variant / 4). */
+  riso(offset?: number, cell?: number, gain?: number, variant?: number, jolt?: number) {
+    return this.un('riso', [offset, cell, gain, variant, jolt]);
   }
   /** Slit-scan: this chain is the history (usually o(0)), `live` feeds it at `line`. */
   /** shape 0: horizontal, 1: vertical, 2: radial. */
@@ -179,12 +179,8 @@ export const motion = (channel: MotionChannel): SignalSource => ({ kind: 'motion
 export const event = (channel: EventChannel): SignalSource => ({ kind: 'event', channel });
 
 export interface MacroApi {
-  /**
-   * A gesture axis between two named characters (1st macro = drag x, 2nd = drag y,
-   * 3rd = two-finger twist). Each target moves its param from `from` (first pole)
-   * to `to` (second pole); `at` is where it rests (0-1).
-   */
-  macro(poles: [string, string], targets: [Chain, string, number, number][], at?: number): void;
+  /** Exposes a param to the gestures: 1st = drag x, 2nd = drag y, 3rd = two-finger twist. */
+  macro(label: string, chain: Chain, param: string, min: number, max: number): void;
   /** Drives a param from a signal every frame. Don't target a param that is also a macro. */
   mod(chain: Chain, param: string, source: SignalSource, min: number, max: number, opts?: { smooth?: number; quantize?: number }): void;
 }
@@ -200,18 +196,14 @@ export function effect(meta: EffectMeta, body: (m: MacroApi) => void): EffectGra
       return `${chain.id}.${param}`;
     };
     body({
-      macro(poles, targets, at = 0.5) {
-        b.macros.push({
-          poles,
-          at,
-          targets: targets.map(([chain, param, from, to]) => ({ target: target(chain, param), range: [from, to] })),
-        });
+      macro(label, chain, param, min, max) {
+        b.macros.push({ label, target: target(chain, param), range: [min, max] });
       },
       mod(chain, param, source, min, max, opts = {}) {
         b.mods.push({ target: target(chain, param), source, range: [min, max], ...opts });
       },
     });
-    const clash = b.mods.find((m) => b.macros.some((x) => x.targets.some((t) => t.target === m.target)));
+    const clash = b.mods.find((m) => b.macros.some((x) => x.target === m.target));
     if (clash) throw new Error(`${clash.target} is both a macro and a mod`);
   } finally {
     current = null;
