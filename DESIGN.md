@@ -126,7 +126,7 @@ Cada efecto trata una sola cuestión de lo visual. Si dos efectos responden a la
 
 | Código | Nombre | Pregunta | Herramienta |
 |---|---|---|---|
-| FX-07 | TRAMA | Imprenta | semitono a dos tintas desregistradas; 12 variantes (4 pares de tintas × puntos, líneas, cruz); al disparar, las planchas saltan |
+| FX-07 | TRAMA | Imprenta de cómic | sombras en tinta sólida, trama fina y suave en los medios, contornos entintados, papel con manchas, fibras y grano; plancha de color desregistrada que salta al disparar |
 | FX-12 | ESPEJO | Simetría | espejo en abismo: reflejos anidados y espejados, con marco `acid` |
 | FX-14 | HALO | Luz | pintar con luz: solo lo brillante deja estela, como una exposición larga |
 | FX-19 | MUDA | Memoria | solo lo que se mueve deja fantasmas de color, que fluyen sobre un relieve de ruido; lo quieto queda nítido |

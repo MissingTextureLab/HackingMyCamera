@@ -6,12 +6,13 @@
 import { cam, effect, event, lfo, noise, o, touch } from '../dsl';
 import type { EffectGraph } from '../graph/types';
 
-// Print: two-ink halftone, out of register; shooting knocks the plates apart.
+// Print, comic-book style: inked shadows and contours, a fine soft screen on
+// textured paper, a colour plate out of register; shooting knocks it apart.
 const trama = effect({ id: 'trama', code: '07', name: 'Trama' }, (m) => {
-  const r = cam().contrast(1.15).riso(3, 7, 1.1, 0, 0);
-  m.macro('REGISTRO', r, 'offset', 0, 14);
-  m.macro('PUNTO', r, 'cell', 3, 18);
-  m.macro('VARIANTE', r, 'variant', 0, 11.99);
+  const r = cam().contrast(1.1).comic(4.5, 3, 1, 1, 0);
+  m.macro('REGISTRO', r, 'offset', 0, 10);
+  m.macro('PUNTO', r, 'cell', 3, 12);
+  m.macro('TINTA', r, 'ink', 0.4, 1.6);
   m.mod(r, 'jolt', event('shot'), 0, 18);
   r.out(0);
 });

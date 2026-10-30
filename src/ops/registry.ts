@@ -671,6 +671,76 @@ fn PASS(uv: vec2f, scale: f32, angle: f32, shift: f32) -> vec4f {
   ],
 });
 
+// Print, comic-book style: solid ink in the shadows, a fine soft screen in the
+// midtones, paper in the lights, inked contours, and a second colour plate out
+// of register by offset + jolt px. The paper has blotches, fibres and grain,
+// and the ink soaks into it unevenly, so the dots never read as perfect
+// circles. Dot size follows the image per pixel, not per cell.
+def({
+  name: 'comic',
+  kind: 'filter',
+  params: [p('cell', 4.5), p('offset', 3), p('ink', 1), p('lines', 1), p('jolt', 0)],
+  passes: [
+    {
+      inputs: ['in0'],
+      wgsl: /* wgsl */ `
+fn screenDot(pix: vec2f, cell: f32, angle: f32, cover: f32, wobble: f32) -> f32 {
+  let c = cos(angle);
+  let s = sin(angle);
+  let r = vec2f(c * pix.x + s * pix.y, -s * pix.x + c * pix.y) / cell;
+  let radius = sqrt(clamp(cover, 0.0, 1.0)) * 0.62 + wobble;
+  return 1.0 - smoothstep(radius - 0.14, radius + 0.14, length(fract(r) - 0.5));
+}
+
+fn PASS(uv: vec2f, cell: f32, offset: f32, ink: f32, lines: f32, jolt: f32) -> vec4f {
+  let px = 1.0 / vec2f(textureDimensions(T0));
+  let l = lumaAt(T0, uv);
+
+  // paper: soft blotches, vertical fibres and grain, fixed to the page
+  let blot = vnoise(vec3f(FC / 160.0, 0.0));
+  let fibre = vnoise(vec3f(FC.x / 1.6, FC.y / 14.0, 3.0));
+  let grain = vnoise(vec3f(FC / 1.3, 7.0));
+  let paper = (0.95 - 0.06 * blot - 0.05 * fibre - 0.03 * grain) * vec3f(1.0, 0.97, 0.9);
+  // the ink soaks in unevenly
+  let wobble = (grain - 0.5) * 0.12 + (blot - 0.5) * 0.06;
+
+  let cs = max(cell, 2.0);
+  let k = clamp(ink, 0.2, 2.0);
+  let dark = clamp(1.0 - l, 0.0, 1.0);
+
+  // key plate: solid shadows and a fine screen in the midtones
+  let solid = smoothstep(0.82 - 0.2 * k, 0.9 - 0.2 * k, dark);
+  let keyDots = screenDot(FC, cs, 0.785, clamp((dark - 0.25) / 0.6, 0.0, 1.0) * k, wobble);
+
+  // colour plate, out of register
+  let o = offset + jolt;
+  let shift = vec2f(o, o * 0.6);
+  let l2 = lumaAt(T0, uv - shift * px);
+  let colDots = screenDot(FC + shift, cs * 0.9, 0.262, clamp((1.0 - l2 - 0.08) / 0.7, 0.0, 1.0), wobble);
+
+  // inked contours (Sobel on the luminance)
+  let tl = lumaAt(T0, uv + px * vec2f(-1.5, -1.5));
+  let tr = lumaAt(T0, uv + px * vec2f(1.5, -1.5));
+  let bl = lumaAt(T0, uv + px * vec2f(-1.5, 1.5));
+  let br = lumaAt(T0, uv + px * vec2f(1.5, 1.5));
+  let ml = lumaAt(T0, uv + px * vec2f(-1.5, 0.0));
+  let mr = lumaAt(T0, uv + px * vec2f(1.5, 0.0));
+  let tc = lumaAt(T0, uv + px * vec2f(0.0, -1.5));
+  let bc = lumaAt(T0, uv + px * vec2f(0.0, 1.5));
+  let gx = (tr + 2.0 * mr + br) - (tl + 2.0 * ml + bl);
+  let gy = (bl + 2.0 * bc + br) - (tl + 2.0 * tc + tr);
+  let contour = smoothstep(0.25, 0.5, length(vec2f(gx, gy)) * lines);
+
+  var col = paper;
+  col *= mix(vec3f(1.0), CITRINK[3] * 1.6, colDots * 0.85);
+  let key = max(max(solid, keyDots), contour);
+  col = mix(col, CITRINK[0] * (0.9 + 0.2 * grain), key * (0.92 + 0.08 * grain));
+  return vec4f(col, 1.0);
+}`,
+    },
+  ],
+});
+
 // Time: slit-scan. Past the line the live image; on the other side, history
 // moves away from it `speed` pixels per frame, fed by the live pixels at the
 // line. shape 0: horizontal line (history goes up), 1: vertical (goes left),

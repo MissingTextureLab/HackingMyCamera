@@ -113,6 +113,10 @@ export class Chain {
   /** Slides this image along the luminance gradient of `map` (TouchDesigner Displace). */
   displace(map: Chain, amount?: number) { return this.bin('displace', map, [amount]); }
   /** Two-ink halftone on paper, second plate out of register by `offset` px. */
+  /** Comic-book print: solid shadows, soft fine screen, inked contours, textured paper. */
+  comic(cell?: number, offset?: number, ink?: number, lines?: number, jolt?: number) {
+    return this.un('comic', [cell, offset, ink, lines, jolt]);
+  }
   /** variant 0-11: ink pair (variant % 4) and screen: dots, lines, cross (variant / 4). */
   riso(offset?: number, cell?: number, gain?: number, variant?: number, jolt?: number) {
     return this.un('riso', [offset, cell, gain, variant, jolt]);
