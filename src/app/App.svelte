@@ -196,7 +196,9 @@
     }
     try {
       feed = await openCamera(facing);
-      send({ type: 'frames', stream: feed.stream, mirror: facing === 'user' }, [feed.stream]);
+      const mirror = facing === 'user';
+      if (feed.stream) send({ type: 'frames', stream: feed.stream, mirror }, [feed.stream]);
+      else feed.pump((frame) => send({ type: 'frame', frame, mirror }, [frame]));
       applyZoom(1);
     } catch (e) {
       console.warn('camera', e);

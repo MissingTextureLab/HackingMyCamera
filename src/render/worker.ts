@@ -129,6 +129,16 @@ scope.addEventListener('message', async (e) => {
       case 'frames':
         readFrames(msg.stream, msg.mirror);
         break;
+      case 'frame':
+        // one-by-one frames (no MediaStreamTrackProcessor): drop any stream reader first
+        if (reader) {
+          reader.cancel().catch(() => {});
+          reader = null;
+        }
+        source = 'camera';
+        if (engine) engine.uploadFrame(msg.frame, msg.mirror);
+        else msg.frame.close();
+        break;
       case 'testSource':
         await reader?.cancel().catch(() => {});
         reader = null;

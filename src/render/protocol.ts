@@ -7,6 +7,7 @@ import type { MotionSnapshot, TouchSnapshot } from '../signals';
 export type ToWorker =
   | { type: 'init'; canvas: OffscreenCanvas; width: number; height: number }
   | { type: 'frames'; stream: ReadableStream<VideoFrame>; mirror: boolean }
+  | { type: 'frame'; frame: VideoFrame; mirror: boolean }
   | { type: 'testSource' }
   | { type: 'resize'; width: number; height: number }
   | { type: 'effect'; graph: EffectGraph }

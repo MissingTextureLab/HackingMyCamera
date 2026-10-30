@@ -12,7 +12,10 @@ export type Facing = 'environment' | 'user';
 export const MAX_ZOOM = 8;
 
 export interface CameraFeed {
-  stream: ReadableStream<VideoFrame>;
+  /** Frames as a transferable stream; null where MediaStreamTrackProcessor is missing (Safari), see `pump`. */
+  stream: ReadableStream<VideoFrame> | null;
+  /** Fallback without `stream`: calls `onFrame` with a fresh VideoFrame per camera frame. */
+  pump(onFrame: (frame: VideoFrame) => void): void;
   facing: Facing;
   /** Applies a total zoom ≥ 1. Returns the part left for the shader (digital zoom). */
   zoom(total: number): number;
@@ -25,7 +28,38 @@ interface ZoomRange {
 }
 
 export function cameraSupported() {
-  return !!navigator.mediaDevices?.getUserMedia && typeof (globalThis as { MediaStreamTrackProcessor?: unknown }).MediaStreamTrackProcessor === 'function';
+  return !!navigator.mediaDevices?.getUserMedia && typeof VideoFrame === 'function';
+}
+
+/** Safari has no MediaStreamTrackProcessor: play the track in a <video> and grab a VideoFrame per frame. */
+function pumpVideo(media: MediaStream, onFrame: (frame: VideoFrame) => void) {
+  const video = document.createElement('video');
+  video.muted = true;
+  video.playsInline = true;
+  video.srcObject = media;
+  // iOS only decodes a video that is attached and has a size
+  video.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none';
+  document.body.append(video);
+  let alive = true;
+  const tick = () => {
+    if (!alive) return;
+    if (video.videoWidth > 0) {
+      try {
+        onFrame(new VideoFrame(video, { timestamp: Math.round(performance.now() * 1000) }));
+      } catch (e) {
+        console.warn('frame', e);
+      }
+    }
+    if ('requestVideoFrameCallback' in video) video.requestVideoFrameCallback(tick);
+    else requestAnimationFrame(tick);
+  };
+  video.play().then(tick, (e) => console.warn('camera play', e));
+  return () => {
+    alive = false;
+    video.pause();
+    video.srcObject = null;
+    video.remove();
+  };
 }
 
 export async function openCamera(facing: Facing): Promise<CameraFeed> {
@@ -45,7 +79,9 @@ export async function openCamera(facing: Facing): Promise<CameraFeed> {
   }
   const track = media.getVideoTracks()[0];
   // Small buffer: drop stale frames rather than queue latency.
-  const processor = new MediaStreamTrackProcessor<VideoFrame>({ track, maxBufferSize: 2 });
+  const Processor = (globalThis as { MediaStreamTrackProcessor?: typeof MediaStreamTrackProcessor }).MediaStreamTrackProcessor;
+  const processor = Processor ? new Processor<VideoFrame>({ track, maxBufferSize: 2 }) : null;
+  let stopPump = () => {};
 
   const caps = (track.getCapabilities?.() ?? {}) as MediaTrackCapabilities & { zoom?: ZoomRange };
   const hw: ZoomRange | null = caps.zoom && caps.zoom.max > caps.zoom.min ? caps.zoom : null;
@@ -70,7 +106,10 @@ export async function openCamera(facing: Facing): Promise<CameraFeed> {
   };
 
   return {
-    stream: processor.readable,
+    stream: processor?.readable ?? null,
+    pump(onFrame) {
+      stopPump = pumpVideo(media, onFrame);
+    },
     facing,
     zoom(total) {
       const t = Math.min(MAX_ZOOM, Math.max(1, total));
@@ -83,6 +122,9 @@ export async function openCamera(facing: Facing): Promise<CameraFeed> {
       }
       return t / (optical / hw.min);
     },
-    stop: () => media.getTracks().forEach((t) => t.stop()),
+    stop() {
+      stopPump();
+      media.getTracks().forEach((t) => t.stop());
+    },
   };
 }
