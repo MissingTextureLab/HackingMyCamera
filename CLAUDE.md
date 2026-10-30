@@ -72,7 +72,7 @@ src/app/       Svelte 5 UI (App, Shutter, EffectStrip) and gestures.ts (drag / p
 - Processors (`kind: 'processor'`, e.g. `sort`) are compute shaders: one workgroup per output column, read their input through `samp`, write a storage temp (rgba16float). Bindings: `COMPUTE_HEADER` in compile.ts.
 - The present pass is the house look ("revelado", DESIGN.md): S curve, Citrink gradient map, 2 px Bayer dither (`HOUSE` in engine.ts) and, on captures only, the date-back stamp (Doto atlas, `Stage.stamp` / `setStampText`). Design effects to read well through it.
 - Binding 8 of group 0 is LETRA's glyph atlas (`src/gpu/glyphs.ts`, built in the worker from Martian Mono and sorted by ink density).
-- Signals: `lfo`, `touch`, `motion` (tilt, currently unused by presets) and `event` (`shot` pulses on photo / start of recording).
+- Signals: `lfo`, `touch`, `motion` (tilt, currently unused by presets) and `event`: `shot` pulses on photo / start of recording (visible in the capture), `taken` right after the photo is read / at the start of recording (for wipes and flashes that must not spoil the photo).
 - Patching under Documents: when Edit/Write fail with ENOENT on a `.tmp` file (Controlled Folder Access), apply changes with a Node script that edits files in place.
 - WGSL reserved words bite (`target`, `module`, …): avoid them as names in snippets; the engine shows compile errors as an on-screen notice.
 - Effects from outside the code (files, editor) go through `validateEffect`; the worker validates every graph it receives.

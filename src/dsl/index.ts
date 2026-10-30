@@ -95,6 +95,10 @@ export class Chain {
   diff(other: Chain) { return this.bin('diff', other, []); }
   /** Per channel max(this, other * amount). */
   lighten(other: Chain, amount?: number) { return this.bin('lighten', other, [amount]); }
+  /** Feedback smoke: the image rises and swirls a little every frame, blurring as it ages. */
+  smoke(amount?: number) { return this.un('smoke', [amount]); }
+  /** Colours a grey freshness buffer by age: green while fresh, dim purple past `knee`. */
+  aging(knee?: number) { return this.un('aging', [knee]); }
 
   // modulation
   modulate(other: Chain, amount?: number) { return this.bin('modulate', other, [amount]); }

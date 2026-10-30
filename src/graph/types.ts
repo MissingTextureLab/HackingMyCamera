@@ -22,7 +22,8 @@ export type TouchChannel = 'x' | 'y' | 'down' | 'vx' | 'vy' | 'count' | 'pinch';
 /** Phone tilt relative to how it was held when the effect started: x = left/right, y = forward/back. */
 export type MotionChannel = 'x' | 'y';
 /** Pulses: 1 at the event, fading to 0 within 0.6 s. 'shot' = photo or start of recording. */
-export type EventChannel = 'shot';
+/** shot: as a photo / recording is taken (it shows in it); taken: right after (it doesn't). */
+export type EventChannel = 'shot' | 'taken';
 
 /** A signal normalized to 0…1 (see src/signals). */
 export type SignalSource =

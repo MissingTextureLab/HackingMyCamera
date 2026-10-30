@@ -78,6 +78,8 @@ function loop(now: number) {
   if (photoRequested) {
     photoRequested = false;
     snapshot().catch(fail);
+    // after the read, so effects can react without spoiling the photo
+    signals.trigger('taken', now / 1000);
   }
 
   fpsFrames++;
@@ -168,6 +170,7 @@ scope.addEventListener('message', async (e) => {
         break;
       case 'recStart':
         signals.trigger('shot', performance.now() / 1000);
+        signals.trigger('taken', performance.now() / 1000);
         await recorder.begin(engine!.canvas, performance.now());
         post({ type: 'recStarted' });
         break;

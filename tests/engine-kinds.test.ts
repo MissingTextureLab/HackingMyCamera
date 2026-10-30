@@ -67,6 +67,7 @@ describe('event signal', () => {
     const g = effect({ id: 'e', code: '0', name: 'E' }, (m) => {
       const r = cam().riso();
       m.mod(r, 'jolt', event('shot'), 0, 18);
+      m.mod(r, 'offset', event('taken'), 0, 4);
       r.out(0);
     });
     expect(validateEffect(JSON.parse(JSON.stringify(g)))).toEqual(g);

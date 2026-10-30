@@ -635,6 +635,43 @@ fn PASS(uv: vec2f, offset: f32, cell: f32, gain: f32, variant: f32, jolt: f32) -
   ],
 });
 
+// Smoke, for feedback buffers: each frame the image rises and swirls a little
+// (`amount` ~ px per frame at 60 fps). Re-sampling a fraction of a pixel
+// every frame also blurs it, so what has been in the buffer longest is the most
+// diffuse.
+def({
+  name: 'smoke',
+  kind: 'coord',
+  params: [p('amount', 1)],
+  wgsl: /* wgsl */ `
+fn op_smoke(uv: vec2f, amount: f32) -> vec2f {
+  let t = G.time * 0.3;
+  let n = vnoise(vec3f(uv * 5.0, t)) - 0.5;
+  let m = vnoise(vec3f(uv * 5.0 + 17.0, t)) - 0.5;
+  let step = amount * G.dt * 60.0 / G.res;
+  return uv + vec2f(n * 2.5, 0.8 + m * 1.2) * step;
+}`,
+});
+
+// Colour by age, for a grey "freshness" buffer (1 = just drawn, fading to 0):
+// fresh is green with a near-white core; past `knee` it drops straight to a
+// dim purple. The jump skips the middle luminances, which the house look
+// turns blue.
+def({
+  name: 'aging',
+  kind: 'color',
+  params: [p('knee', 0.45)],
+  wgsl: /* wgsl */ `
+fn op_aging(c: vec4f, knee: f32) -> vec4f {
+  let f = clamp(c.r, 0.0, 1.0);
+  let k = clamp(knee, 0.05, 0.95);
+  let fresh = (f - k) / (1.0 - k);
+  let green = mix(CITRINK[4], mix(CITRINK[5], vec3f(1.0), 0.5), smoothstep(0.5, 1.0, fresh));
+  let purple = vec3f(0.35, 0.12, 0.55) * (f / k);
+  return vec4f(select(purple, green, f > k), c.a);
+}`,
+});
+
 // Symmetry: facing mirrors. The previous frame, shrunk by `scale`, turned by
 // `angle` and mirrored, sits on top of the live image with no frame; feeding
 // back, it nests forever. Every bounce wears it down like a bad digital copy:

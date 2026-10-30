@@ -161,8 +161,8 @@ export function validateEffect(input: unknown): EffectGraph {
         if (s.channel !== 'x' && s.channel !== 'y') err(`${at}.source.channel`, 'one of x, y');
         else source = { kind: 'motion', channel: s.channel };
       } else if (s.kind === 'event') {
-        if (s.channel !== 'shot') err(`${at}.source.channel`, 'one of shot');
-        else source = { kind: 'event', channel: 'shot' };
+        if (s.channel !== 'shot' && s.channel !== 'taken') err(`${at}.source.channel`, 'one of shot, taken');
+        else source = { kind: 'event', channel: s.channel };
       } else err(`${at}.source.kind`, 'must be "lfo", "touch", "motion" or "event"');
       if (m.smooth !== undefined && (!isNum(m.smooth) || m.smooth < 0 || m.smooth >= 1)) err(`${at}.smooth`, 'from 0 up to (not including) 1');
       if (m.quantize !== undefined && (!isNum(m.quantize) || m.quantize <= 0)) err(`${at}.quantize`, 'must be more than 0');

@@ -3,7 +3,7 @@
 // Macros: A = drag x, B = drag y, C = two-finger twist.
 // Mods move params on their own (LFO) or with the finger (touch).
 
-import { cam, effect, event, lfo, noise, o, touch } from '../dsl';
+import { cam, effect, event, lfo, noise, o, solid, touch } from '../dsl';
 import type { EffectGraph } from '../graph/types';
 
 // Print, comic-book style: inked shadows and contours, a fine soft screen on
@@ -28,18 +28,24 @@ const espejo = effect({ id: 'espejo', code: '12', name: 'Espejo' }, (m) => {
 });
 
 // Light: painting with light. Only what is bright leaves a trail, like a long
-// exposure; move a torch, or the phone, and you draw.
+// exposure; move a torch, or the phone, and you draw. The trail keeps its age:
+// fresh light is green, old light turns purple and goes up in smoke. Taking a
+// photo or starting a recording flashes and wipes it: a new exposure.
 const halo = effect({ id: 'halo', code: '14', name: 'Halo' }, (m) => {
-  const mask = cam().thresh(0.82, 0.06);
-  const lights = cam().mult(mask, 1);
-  const fade = o(1).gain(0.96);
-  const trails = fade.lighten(lights, 1);
+  const fresh = cam().thresh(0.82, 0.06);
+  const drift = o(1).smoke(1);
+  const fade = drift.gain(0.96);
+  const wipe = fade.gain(1);
+  const trails = wipe.lighten(fresh, 1);
   trails.out(1);
-  const glow = trails.bloom(0.3, 1.2, 10);
+  const glow = trails.aging(0.45).bloom(0.3, 1.2, 10);
+  const view = cam().gain(0.7).add(glow, 1).add(solid(1, 1, 1), 0);
   m.macro('ESTELA', fade, 'amount', 0.85, 0.995);
-  m.macro('UMBRAL', mask, 'threshold', 0.95, 0.5);
-  m.macro('BRILLO', glow, 'intensity', 0, 3);
-  cam().gain(0.7).add(glow, 1).out(0);
+  m.macro('UMBRAL', fresh, 'threshold', 0.95, 0.5);
+  m.macro('HUMO', drift, 'amount', 0, 2.5);
+  m.mod(wipe, 'amount', event('taken'), 1, 0);
+  m.mod(view, 'amount', event('taken'), 0, 0.85);
+  view.out(0);
 });
 
 // Memory: only what moves is remembered. Still parts stay sharp; moving
