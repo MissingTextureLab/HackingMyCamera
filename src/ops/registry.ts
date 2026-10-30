@@ -636,21 +636,29 @@ fn PASS(uv: vec2f, offset: f32, cell: f32, gain: f32, variant: f32, jolt: f32) -
 });
 
 // Symmetry: facing mirrors. The previous frame, shrunk by `scale`, turned by
-// `angle` and mirrored, sits inside a thin acid frame on top of the live image;
-// feeding back, it nests forever. in0 = the camera, in1 = the previous frame.
+// `angle` and mirrored, sits on top of the live image with no frame; feeding
+// back, it nests forever. Every bounce wears it down like a bad digital copy:
+// it is sampled in blocks and its colour depth drops (`crush` 0-1), and it
+// darkens a little, so the deep reflections end up the most broken.
+// in0 = the camera, in1 = the previous frame.
 def({
   name: 'abyss',
   kind: 'filter',
   inputs: 2,
-  params: [p('scale', 0.78), p('angle', 0), p('shift', 0)],
+  params: [p('scale', 0.6), p('angle', 0), p('shift', 0), p('crush', 0.4)],
   passes: [
     {
       inputs: ['in0', 'in1'],
       wgsl: /* wgsl */ `
-fn PASS(uv: vec2f, scale: f32, angle: f32, shift: f32) -> vec4f {
+fn PASS(uv: vec2f, scale: f32, angle: f32, shift: f32, crush: f32) -> vec4f {
   let asp = G.res.x / G.res.y;
   let k = clamp(scale, 0.05, 0.98);
-  var q = uv - vec2f(0.5 + shift, 0.5);
+  let cr = clamp(crush, 0.0, 1.0);
+  let res = vec2f(textureDimensions(T1));
+  // bitcrush, part 1: the reflection is read in blocks of screen pixels
+  let block = mix(1.0, 10.0, cr);
+  let snapped = (floor(uv * res / block) + 0.5) * block / res;
+  var q = snapped - vec2f(0.5 + shift, 0.5);
   q.x *= asp;
   let c = cos(angle);
   let s = sin(angle);
@@ -658,12 +666,11 @@ fn PASS(uv: vec2f, scale: f32, angle: f32, shift: f32) -> vec4f {
   q.x /= asp;
   let inner = q + 0.5;
   if (all(inner > vec2f(0.0)) && all(inner < vec2f(1.0))) {
-    let edge = min(min(inner.x, 1.0 - inner.x), min(inner.y, 1.0 - inner.y));
-    if (edge < 0.012 / k) {
-      return vec4f(CITRINK[5], 1.0);
-    }
     // each reflection is mirrored, like a mirror facing a mirror
-    return textureSampleLevel(T1, samp, vec2f(1.0 - inner.x, inner.y), 0.0);
+    let r = textureSampleLevel(T1, samp, vec2f(1.0 - inner.x, inner.y), 0.0).rgb;
+    // bitcrush, part 2: fewer colour levels, a little darker per bounce
+    let levels = mix(32.0, 3.0, cr);
+    return vec4f(floor(r * levels + 0.5) / levels * 0.96, 1.0);
   }
   return textureSampleLevel(T0, samp, uv, 0.0);
 }`,

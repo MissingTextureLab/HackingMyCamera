@@ -18,12 +18,12 @@ const trama = effect({ id: 'trama', code: '07', name: 'Trama' }, (m) => {
 });
 
 // Symmetry: two mirrors facing each other. Each reflection sits inside the
-// last, mirrored, with an acid frame.
+// last, mirrored, and every bounce bitcrushes it a little more.
 const espejo = effect({ id: 'espejo', code: '12', name: 'Espejo' }, (m) => {
-  const a = cam().abyss(o(0), 0.78, 0, 0);
-  m.macro('PROFUNDIDAD', a, 'scale', 0.55, 0.92);
+  const a = cam().abyss(o(0), 0.6, 0, 0, 0.4);
+  m.macro('TAMAÑO', a, 'scale', 0.35, 0.8);
   m.macro('GIRO', a, 'angle', -0.5, 0.5);
-  m.macro('EJE', a, 'shift', -0.25, 0.25);
+  m.macro('DESGASTE', a, 'crush', 0, 1);
   a.out(0);
 });
 

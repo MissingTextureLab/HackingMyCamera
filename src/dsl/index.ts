@@ -124,8 +124,10 @@ export class Chain {
   /** Slit-scan: this chain is the history (usually o(0)), `live` feeds it at `line`. */
   /** shape 0: horizontal, 1: vertical, 2: radial. */
   slit(live: Chain, speed?: number, line?: number, shape?: number) { return this.bin('slit', live, [speed, line, shape]); }
-  /** Facing mirrors: `previous` (usually o(0)) nested inside a frame on top of this. */
-  abyss(previous: Chain, scale?: number, angle?: number, shift?: number) { return this.bin('abyss', previous, [scale, angle, shift]); }
+  /** Facing mirrors: `previous` (usually o(0)) nested on top of this, worn down by `crush` per bounce. */
+  abyss(previous: Chain, scale?: number, angle?: number, shift?: number, crush?: number) {
+    return this.bin('abyss', previous, [scale, angle, shift, crush]);
+  }
   lens(aberration?: number, barrel?: number, vignette?: number) { return this.un('lens', [aberration, barrel, vignette]); }
   /** Anamorphic streaks from bright spots; `reach` in output pixels. */
   flare(threshold?: number, reach?: number, intensity?: number) { return this.un('flare', [threshold, reach, intensity]); }
