@@ -216,6 +216,8 @@
     const v = Math.min(hi, Math.max(lo, value));
     macros[i] = { ...m, value: v };
     send({ type: 'param', slot: m.slot, value: v });
+    const t = m.max === m.min ? 0 : (v - m.min) / (m.max - m.min);
+    for (const l of m.links ?? []) send({ type: 'param', slot: l.slot, value: l.min + (l.max - l.min) * t });
   }
 
   function applyZoom(total: number) {

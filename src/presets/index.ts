@@ -75,9 +75,10 @@ const muda = effect({ id: 'muda', code: '19', name: 'Muda' }, (m) => {
 // each one a worse copy of the last: the further from the line, the more worn.
 const barrido = effect({ id: 'barrido', code: '22', name: 'Barrido' }, (m) => {
   const s = o(0).slit(cam(), 2, 0.72, 0, 0.4);
-  m.macro('VELOCIDAD', s, 'speed', 0.5, 10);
-  m.macro('DESGASTE', s, 'wear', 0, 1);
   m.macro('FORMA', s, 'shape', 0, 2.99);
+  m.macro('LÍNEA', s, 'line', 0.2, 0.95);
+  // slow and clean → fast and broken (speed 2 at the resting wear 0.4)
+  m.macro('GASTO', s, 'wear', 0, 1, [[s, 'speed', 0.5, 4.25]]);
   s.out(0);
 });
 

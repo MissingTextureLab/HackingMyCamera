@@ -15,6 +15,8 @@ export interface Macro {
   /** "<nodeId>.<param>" */
   target: string;
   range: [number, number];
+  /** Params that follow the same gesture, each over its own range. */
+  links?: { target: string; range: [number, number] }[];
 }
 
 export type LfoShape = 'sine' | 'tri' | 'saw' | 'square' | 'random' | 'noise';

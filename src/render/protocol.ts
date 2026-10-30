@@ -26,6 +26,8 @@ export interface MacroInfo {
   min: number;
   max: number;
   value: number;
+  /** Params that follow this macro, each over its own range. */
+  links?: { slot: number; min: number; max: number }[];
 }
 
 export type FromWorker =

@@ -133,7 +133,17 @@ export function validateEffect(input: unknown): EffectGraph {
       if (!isStr(m.label) || m.label.length < 1 || m.label.length > 12) err(`${at}.label`, '1–12 characters');
       const target = paramTarget(`${at}.target`, m.target);
       const r = range(`${at}.range`, m.range);
-      if (target && r && isStr(m.label)) macros.push({ label: m.label, target, range: r });
+      const links: { target: string; range: [number, number] }[] = [];
+      if (m.links !== undefined && !Array.isArray(m.links)) err(`${at}.links`, 'must be an array');
+      else if (Array.isArray(m.links)) {
+        m.links.forEach((l, k) => {
+          if (!isObj(l)) return err(`${at}.links[${k}]`, 'must be an object');
+          const lt = paramTarget(`${at}.links[${k}].target`, l.target);
+          const lr = range(`${at}.links[${k}].range`, l.range);
+          if (lt && lr) links.push({ target: lt, range: lr });
+        });
+      }
+      if (target && r && isStr(m.label)) macros.push({ label: m.label, target, range: r, ...(links.length ? { links } : {}) });
     });
   }
 
@@ -167,7 +177,7 @@ export function validateEffect(input: unknown): EffectGraph {
       if (m.smooth !== undefined && (!isNum(m.smooth) || m.smooth < 0 || m.smooth >= 1)) err(`${at}.smooth`, 'from 0 up to (not including) 1');
       if (m.quantize !== undefined && (!isNum(m.quantize) || m.quantize <= 0)) err(`${at}.quantize`, 'must be more than 0');
       if (target && r && source) {
-        if (macros.some((x) => x.target === target)) err(`${at}.target`, `${target} is already a macro`);
+        if (macros.some((x) => x.target === target || x.links?.some((l) => l.target === target))) err(`${at}.target`, `${target} is already a macro`);
         mods.push({
           target,
           source,

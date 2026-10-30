@@ -195,8 +195,11 @@ export const motion = (channel: MotionChannel): SignalSource => ({ kind: 'motion
 export const event = (channel: EventChannel): SignalSource => ({ kind: 'event', channel });
 
 export interface MacroApi {
-  /** Exposes a param to the gestures: 1st = drag x, 2nd = drag y, 3rd = two-finger twist. */
-  macro(label: string, chain: Chain, param: string, min: number, max: number): void;
+  /**
+   * Exposes a param to the gestures: 1st = drag x, 2nd = drag y, 3rd = two-finger twist.
+   * `links` ([chain, param, min, max]) follow the same gesture over their own ranges.
+   */
+  macro(label: string, chain: Chain, param: string, min: number, max: number, links?: [Chain, string, number, number][]): void;
   /** Drives a param from a signal every frame. Don't target a param that is also a macro. */
   mod(chain: Chain, param: string, source: SignalSource, min: number, max: number, opts?: { smooth?: number; quantize?: number }): void;
 }
@@ -212,14 +215,19 @@ export function effect(meta: EffectMeta, body: (m: MacroApi) => void): EffectGra
       return `${chain.id}.${param}`;
     };
     body({
-      macro(label, chain, param, min, max) {
-        b.macros.push({ label, target: target(chain, param), range: [min, max] });
+      macro(label, chain, param, min, max, links) {
+        b.macros.push({
+          label,
+          target: target(chain, param),
+          range: [min, max],
+          ...(links?.length ? { links: links.map(([c, p, lo, hi]) => ({ target: target(c, p), range: [lo, hi] as [number, number] })) } : {}),
+        });
       },
       mod(chain, param, source, min, max, opts = {}) {
         b.mods.push({ target: target(chain, param), source, range: [min, max], ...opts });
       },
     });
-    const clash = b.mods.find((m) => b.macros.some((x) => x.target === m.target));
+    const clash = b.mods.find((m) => b.macros.some((x) => x.target === m.target || x.links?.some((l) => l.target === m.target)));
     if (clash) throw new Error(`${clash.target} is both a macro and a mod`);
   } finally {
     current = null;

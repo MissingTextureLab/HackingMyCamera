@@ -62,7 +62,7 @@ export interface CompiledEffect {
   /** Initial uniform contents, MAX_PARAMS long. */
   values: Float32Array;
   display: OutputId;
-  macros: { label: string; slot: number; min: number; max: number }[];
+  macros: { label: string; slot: number; min: number; max: number; links?: { slot: number; min: number; max: number }[] }[];
 }
 
 // Binding layout shared by every pass; the runtime mirrors it.
@@ -312,8 +312,11 @@ export function compileEffect(graph: EffectGraph): CompiledEffect {
   }
 
   const macros = graph.macros.map((m) => {
-    if (!(m.target in slots)) throw new Error(`macro "${m.label}": ${m.target} is not a uniform param`);
-    return { label: m.label, slot: slots[m.target], min: m.range[0], max: m.range[1] };
+    for (const t of [m.target, ...(m.links ?? []).map((l) => l.target)]) {
+      if (!(t in slots)) throw new Error(`macro "${m.label}": ${t} is not a uniform param`);
+    }
+    const links = m.links?.map((l) => ({ slot: slots[l.target], min: l.range[0], max: l.range[1] }));
+    return { label: m.label, slot: slots[m.target], min: m.range[0], max: m.range[1], ...(links ? { links } : {}) };
   });
   for (const mod of graph.mods) {
     if (!(mod.target in slots)) throw new Error(`mod: ${mod.target} is not a uniform param`);
