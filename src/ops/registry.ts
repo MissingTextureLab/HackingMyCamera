@@ -1338,11 +1338,11 @@ def({
 fn PASS(uv: vec2f, curve: f32, mask: f32, mx: f32, my: f32, magnet: f32) -> vec4f {
   let asp = G.res.x / G.res.y;
   let m = vec2f(mx, my);
-  // the magnet twists and pushes the beams near it
+  // the magnet pushes the beams away from it, with only a slight twist
   var toM = (uv - m) * vec2f(asp, 1.0);
   let d = length(toM);
   let k = clamp(magnet, 0.0, 1.0) * exp(-d * d / 0.05);
-  let a = k * 1.4;
+  let a = k * 0.35;
   toM = vec2f(cos(a) * toM.x - sin(a) * toM.y, sin(a) * toM.x + cos(a) * toM.y) * (1.0 + k * 0.3);
   let p = m + toM / vec2f(asp, 1.0);
   // curved glass
@@ -1362,8 +1362,9 @@ fn PASS(uv: vec2f, curve: f32, mask: f32, mx: f32, my: f32, magnet: f32) -> vec4
   var grille = vec3f(0.3);
   grille[tri] = 1.0;
   col *= mix(vec3f(1.0), grille * 1.7, clamp(mask, 0.0, 1.0));
-  // the magnet breaks colour purity: rainbow stains around it
-  let stain = hsv2rgb(vec3f(fract(atan2(toM.y, toM.x) / TAU + d * 4.0), 0.9, 1.0));
+  // the magnet breaks colour purity: blotchy rainbow stains around it
+  let blot = vnoise(vec3f(toM * 6.0, 0.0)) + 0.5 * vnoise(vec3f(toM * 13.0, 5.0));
+  let stain = hsv2rgb(vec3f(fract(d * 1.5 + blot * 0.6), 0.9, 1.0));
   col = mix(col, col * stain * 1.6 + stain * 0.08, k * 0.85);
   // dark rounded corners
   let e = abs(q);
