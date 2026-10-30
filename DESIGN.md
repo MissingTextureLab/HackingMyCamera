@@ -90,7 +90,8 @@ La imagen es la superficie de control. Ningún gesto abre menús.
 | Arrastrar con un dedo | Macro A (horizontal) y macro B (vertical), posición absoluta | `A / ETIQUETA` y `B / ETIQUETA` en Doto mientras dura |
 | Pellizcar | Zoom de 1× a 8×: óptico mientras el móvil lo permita, digital a partir de ahí | `ZOOM 2.4×` |
 | Girar con dos dedos | Macro C, relativa al valor de partida | `C / ETIQUETA` junto al zoom |
-| Doble toque | Restablece macros y zoom | — |
+| Inclinar el móvil | En los efectos 3D, orbita la cámara: mirar por una ventana | — |
+| Doble toque | Restablece macros y zoom, y toma la postura actual del móvil como "recto" | — |
 | Deslizar la tira de efectos | Recorre la galería | — |
 | Tocar / mantener el obturador | Foto / grabar mientras se mantiene | Sello `GUARDADO` / `REC` |
 | Triple toque en la etiqueta de cámara | HUD de depuración | fps, ms de GPU, resolución, pases |
@@ -130,6 +131,11 @@ Cada efecto trata una sola cuestión de lo visual. Si dos efectos responden a la
 | FX-36 | VITRAL | Teselación | celdas de Voronoi con plomo |
 | FX-44 | SEÑAL | Vídeo analógico | tracking, nieve, sangrado de color, líneas; tocar la imagen mete interferencia |
 | FX-50 | ORDEN | Glitch digital | pixel sorting por umbral y ángulo |
+| FX-60 | RELIEVE | Relieve | la imagen como terreno de líneas de cresta, con las líneas ocultas eliminadas |
+| FX-63 | NUBE | Volumen | nube de puntos con los colores de la cámara, profundidad por brillo |
+| FX-66 | CIUDAD | Masa | bloques tan altos como brillante es la imagen, coloreados por altura |
+
+Los tres efectos 3D (60–66) se miran inclinando el móvil.
 
 Cada efecto expone hasta tres macros con nombre propio (A, B, C; ver *Gestos*).
 

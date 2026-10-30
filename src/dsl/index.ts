@@ -7,7 +7,7 @@
 //     k.citrink(1).out(0);
 //   });
 
-import type { EffectGraph, LfoShape, Macro, Mod, NodeSpec, OutputId, SignalSource, TouchChannel } from '../graph/types';
+import type { EffectGraph, LfoShape, Macro, Mod, MotionChannel, NodeSpec, OutputId, SignalSource, TouchChannel } from '../graph/types';
 import { OPS } from '../ops/registry';
 
 type N = number | undefined;
@@ -115,6 +115,17 @@ export class Chain {
   slit(live: Chain, speed?: number, line?: number) { return this.bin('slit', live, [speed, line]); }
   lens(aberration?: number, barrel?: number, vignette?: number) { return this.un('lens', [aberration, barrel, vignette]); }
   ascii(cell?: number, contrast?: number) { return this.un('ascii', [cell, contrast]); }
+
+  // 3D scenes (rendered with depth into their own texture)
+  relief(height?: number, yaw?: number, pitch?: number, dist?: number, thickness?: number) {
+    return this.un('relief', [height, yaw, pitch, dist, thickness]);
+  }
+  cloud(depth?: number, size?: number, yaw?: number, pitch?: number, dist?: number, scatter?: number) {
+    return this.un('cloud', [depth, size, yaw, pitch, dist, scatter]);
+  }
+  city(height?: number, yaw?: number, pitch?: number, dist?: number, gap?: number) {
+    return this.un('city', [height, yaw, pitch, dist, gap]);
+  }
   vitral(scale?: number, border?: number, jitter?: number) { return this.un('vitral', [scale, border, jitter]); }
   vhs(tracking?: number, noise?: number, bleed?: number) { return this.un('vhs', [tracking, noise, bleed]); }
   sort(threshold?: number, reach?: number, angle?: number) { return this.un('sort', [threshold, reach, angle]); }
@@ -145,6 +156,7 @@ export interface EffectMeta {
 export const lfo = (shape: LfoShape, rate: number, phase?: number): SignalSource =>
   phase === undefined ? { kind: 'lfo', shape, rate } : { kind: 'lfo', shape, rate, phase };
 export const touch = (channel: TouchChannel): SignalSource => ({ kind: 'touch', channel });
+export const motion = (channel: MotionChannel): SignalSource => ({ kind: 'motion', channel });
 
 export interface MacroApi {
   /** Exposes a param to the gestures: 1st = drag x, 2nd = drag y, 3rd = two-finger twist. */

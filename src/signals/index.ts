@@ -64,8 +64,16 @@ export function touchValue(t: TouchSnapshot, ch: TouchChannel): number {
   }
 }
 
-export function sourceValue(src: SignalSource, time: number, touch: TouchSnapshot): number {
+/** Tilt in degrees from the reference pose; 0.5 is level, ±TILT_RANGE reaches 0 / 1. */
+export interface MotionSnapshot {
+  x: number;
+  y: number;
+}
+export const TILT_RANGE = 25;
+
+export function sourceValue(src: SignalSource, time: number, touch: TouchSnapshot, motion: MotionSnapshot = { x: 0, y: 0 }): number {
   if (src.kind === 'touch') return touchValue(touch, src.channel);
+  if (src.kind === 'motion') return clamp01(0.5 + motion[src.channel] / (2 * TILT_RANGE));
   const cycles = time * src.rate + (src.phase ?? 0);
   return lfo(src.shape, cycles, Math.floor(cycles));
 }
@@ -79,6 +87,12 @@ interface Bound {
 export class Signals {
   private bound: Bound[] = [];
   readonly touch: TouchSnapshot = { down: 0, x: 0.5, y: 0.5, vx: 0, vy: 0, count: 0, pinch: 1 };
+  readonly motion: MotionSnapshot = { x: 0, y: 0 };
+
+  setMotion(m: MotionSnapshot) {
+    this.motion.x = m.x;
+    this.motion.y = m.y;
+  }
 
   /** Binds an effect's mods to their uniform slots. Initial values seed the smoothing. */
   bind(mods: Mod[], slots: Record<string, number>, values: Float32Array) {
@@ -97,7 +111,7 @@ export class Signals {
   update(time: number, dt: number, write: (slot: number, value: number) => void) {
     for (const b of this.bound) {
       const { mod } = b;
-      const v = sourceValue(mod.source, time, this.touch);
+      const v = sourceValue(mod.source, time, this.touch, this.motion);
       let target = mod.range[0] + (mod.range[1] - mod.range[0]) * v;
       const smooth = mod.smooth ?? 0;
       // frame-rate independent one-pole: `smooth` is the per-frame factor at 60 fps

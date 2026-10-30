@@ -70,6 +70,24 @@ describe('compileEffect', () => {
     expect(last.inputs[0]).toBe(c.passes[0].target.id); // the camera, materialized
   });
 
+  it('renders a 3D scene into a temp with depth and param accessors', () => {
+    const g = effect({ id: 's', code: '0', name: 'S' }, (m) => {
+      const r = cam().relief(0.7);
+      m.macro('H', r, 'height', 0, 1);
+      r.hue(0.1).out(0);
+    });
+    const c = compileEffect(g);
+    const scene = c.passes.find((p) => p.draws)!;
+    expect(scene.draws!.map((d) => d.vs)).toEqual(['vs_fill', 'vs_line']);
+    expect(scene.inputs).toHaveLength(1);
+    expect(scene.wgsl).toMatch(/fn p_height\(\) -> f32 \{\s+return P\[\d+\]\.[xyzw];/);
+    expect(c.temps.find((t) => t.id === scene.target.id)?.depth).toBe(true);
+    // what comes after the scene is fused as usual and samples it
+    const out = c.passes[c.passes.length - 1];
+    expect(out.inputs).toEqual([scene.target.id]);
+    expect(out.wgsl).toContain('fn op_hue');
+  });
+
   it('gives displace both its inputs as textures', () => {
     const g = effect({ id: 'd', code: '0', name: 'D' }, () => cam().displace(noise(3), 2).out(0));
     const c = compileEffect(g);

@@ -49,6 +49,7 @@ src/gpu/       engine.ts: Engine (device, pipelines, camera texture) + Stage per
                (viewfinder, each live thumbnail): o0–o3 ping-pong, temps, present + xerox pass
 src/render/    worker.ts (owns GPU, canvases, camera frames, recorder, signals), protocol.ts (messages)
 src/io/        camera.ts: getUserMedia → MediaStreamTrackProcessor → transferred stream; hardware zoom
+               motion.ts: DeviceOrientation tilt relative to a reference pose (the `motion` signal)
 src/capture/   recorder.ts: Mediabunny CanvasSource → mp4 (video only)
 src/app/       Svelte 5 UI (App, Shutter, EffectStrip) and gestures.ts (drag / pinch / twist / double tap)
 ```
@@ -59,6 +60,8 @@ src/app/       Svelte 5 UI (App, Shutter, EffectStrip) and gestures.ts (drag / p
 - Param values are uniforms (`P[]`), so changing values never recompiles; only structure does. Structural params (buffer index) are baked.
 - Buffer reads (`o(i)`) always see the previous frame.
 - Filters (blur, edge, sharpen, displace, bloom) read neighbours, so their inputs are rendered to temp textures; keep chains fused otherwise. A pass reads at most 4 temps.
+- 3D scenes (`render3d` ops: relief, cloud, city) build geometry from `vertex_index` (no vertex buffers), render with a depth buffer into a temp, and read params via generated `p_<name>()` accessors so the vertex stage can use them.
+- WGSL reserved words bite (`target`, `module`, …): avoid them as names in snippets; the engine shows compile errors as an on-screen notice.
 - Effects from outside the code (files, editor) go through `validateEffect`; the worker validates every graph it receives.
 - A param is either a macro (gestures) or a mod (signals), never both.
 - No microphone: the user doesn't want audio input or audio in recordings.

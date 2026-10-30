@@ -94,12 +94,16 @@ export interface EngineStats {
   gpuMs: number | null;
 }
 
+const DEPTH_FORMAT: GPUTextureFormat = 'depth24plus';
+
 interface LoadedEffect {
   graph: EffectGraph;
   compiled: CompiledEffect;
-  /** One per compiled pass. */
-  pipelines: GPURenderPipeline[];
+  /** Per compiled pass, one pipeline per draw (fullscreen passes have one). */
+  pipelines: GPURenderPipeline[][];
   temps: Map<string, GPUTexture>;
+  /** Depth buffers of 3D scene temps, by temp id. */
+  depths: Map<string, GPUTexture>;
   /** group(1) per pass: its T0…T3 inputs. */
   inputGroups: GPUBindGroup[];
 }
@@ -162,7 +166,7 @@ class Stage {
     const old = this.effect;
     this.allocateTemps(loaded);
     this.effect = loaded;
-    if (old) for (const t of old.temps.values()) t.destroy();
+    if (old) for (const t of [...old.temps.values(), ...old.depths.values()]) t.destroy();
     this.paramsData.set(loaded.compiled.values);
     this.paramsDirty = true;
     // clear feedback so the new effect starts clean
@@ -213,14 +217,22 @@ class Stage {
     const parity = this.frame & 1;
     eff.compiled.passes.forEach((p, i) => {
       const target = p.target.kind === 'output' ? this.outputs[OUTPUTS.indexOf(p.target.id)][parity] : eff.temps.get(p.target.id)!;
+      const depth = p.target.kind === 'temp' ? eff.depths.get(p.target.id) : undefined;
       const pass = enc.beginRenderPass({
-        colorAttachments: [{ view: target.createView(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1] }],
+        // 3D scenes clear to the darkest Citrink colour; 2D passes cover every pixel anyway
+        colorAttachments: [{ view: target.createView(), loadOp: 'clear', storeOp: 'store', clearValue: p.draws ? [0.12549, 0.08235, 0.2, 1] : [0, 0, 0, 1] }],
+        depthStencilAttachment: depth
+          ? { view: depth.createView(), depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'discard' }
+          : undefined,
         timestampWrites: timestamps && i === 0 ? { querySet: timestamps, beginningOfPassWriteIndex: 0 } : undefined,
       });
-      pass.setPipeline(eff.pipelines[i]);
       pass.setBindGroup(0, this.bindGroups[parity]);
       pass.setBindGroup(1, eff.inputGroups[i]);
-      pass.draw(3);
+      const draws = p.draws ?? [{ count: 3 }];
+      draws.forEach((d, k) => {
+        pass.setPipeline(eff.pipelines[i][k]);
+        pass.draw(d.count);
+      });
       pass.end();
     });
 
@@ -264,7 +276,7 @@ class Stage {
 
   destroy() {
     for (const pair of this.outputs) for (const t of pair) t.destroy();
-    if (this.effect) for (const t of this.effect.temps.values()) t.destroy();
+    if (this.effect) for (const t of [...this.effect.temps.values(), ...this.effect.depths.values()]) t.destroy();
     this.globals.destroy();
     this.params.destroy();
     this.presentUniform.destroy();
@@ -272,18 +284,23 @@ class Stage {
 
   // Temp textures live with the effect and follow the stage size.
   private allocateTemps(eff: LoadedEffect) {
-    for (const t of eff.temps.values()) t.destroy();
+    for (const t of [...eff.temps.values(), ...eff.depths.values()]) t.destroy();
     eff.temps.clear();
+    eff.depths.clear();
     const [W, H] = this.size;
     for (const t of eff.compiled.temps) {
+      const size = [Math.max(2, Math.round(W * t.scale)), Math.max(2, Math.round(H * t.scale))];
       eff.temps.set(
         t.id,
         this.e.device.createTexture({
-          size: [Math.max(2, Math.round(W * t.scale)), Math.max(2, Math.round(H * t.scale))],
+          size,
           format: BUFFER_FORMAT,
           usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
         }),
       );
+      if (t.depth) {
+        eff.depths.set(t.id, this.e.device.createTexture({ size, format: DEPTH_FORMAT, usage: GPUTextureUsage.RENDER_ATTACHMENT }));
+      }
     }
     eff.inputGroups = eff.compiled.passes.map((p) =>
       this.e.device.createBindGroup({
@@ -350,12 +367,14 @@ export class Engine {
     this.format = navigator.gpu.getPreferredCanvasFormat();
     this.sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
 
-    const tex = (binding: number): GPUBindGroupLayoutEntry => ({ binding, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } });
+    // 3D scenes read params and textures in the vertex stage too
+    const both = GPUShaderStage.FRAGMENT | GPUShaderStage.VERTEX;
+    const tex = (binding: number): GPUBindGroupLayoutEntry => ({ binding, visibility: both, texture: { sampleType: 'float' } });
     this.layout = device.createBindGroupLayout({
       entries: [
-        { binding: 0, visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.VERTEX, buffer: { type: 'uniform' } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
-        { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+        { binding: 0, visibility: both, buffer: { type: 'uniform' } },
+        { binding: 1, visibility: both, buffer: { type: 'uniform' } },
+        { binding: 2, visibility: both, sampler: { type: 'filtering' } },
         tex(3), tex(4), tex(5), tex(6), tex(7),
       ],
     });
@@ -527,8 +546,12 @@ export class Engine {
 
   private async load(graph: EffectGraph): Promise<LoadedEffect> {
     const compiled = compileEffect(graph);
-    const pipelines = await Promise.all(compiled.passes.map((p) => this.pipeline(p.wgsl)));
-    return { graph, compiled, pipelines, temps: new Map(), inputGroups: [] };
+    const pipelines = await Promise.all(
+      compiled.passes.map((p) =>
+        p.draws ? Promise.all(p.draws.map((d) => this.pipeline(p.wgsl, d.vs, d.fs, true))) : Promise.all([this.pipeline(p.wgsl)]),
+      ),
+    );
+    return { graph, compiled, pipelines, temps: new Map(), depths: new Map(), inputGroups: [] };
   }
 
   private forEachStage(fn: (s: Stage) => void) {
@@ -551,25 +574,43 @@ export class Engine {
     });
   }
 
-  private pipeline(wgsl: string): Promise<GPURenderPipeline> {
-    let p = this.pipelineCache.get(wgsl);
-    if (!p) {
-      p = (async () => {
+  private modules = new Map<string, Promise<GPUShaderModule>>();
+
+  private module(wgsl: string): Promise<GPUShaderModule> {
+    let m = this.modules.get(wgsl);
+    if (!m) {
+      m = (async () => {
         const module = this.device.createShaderModule({ code: wgsl });
         const info = await module.getCompilationInfo();
-        const errors = info.messages.filter((m) => m.type === 'error');
+        const errors = info.messages.filter((x) => x.type === 'error');
         if (errors.length) {
           const lines = wgsl.split('\n');
           throw new Error(errors.map((e) => `${e.lineNum}:${e.linePos} ${e.message}\n  ${lines[e.lineNum - 1] ?? ''}`).join('\n'));
         }
-        return this.device.createRenderPipelineAsync({
-          layout: this.pipelineLayout,
-          vertex: { module, entryPoint: 'vs' },
-          fragment: { module, entryPoint: 'fs', targets: [{ format: BUFFER_FORMAT }] },
-        });
+        return module;
       })();
-      p.catch(() => this.pipelineCache.delete(wgsl));
-      this.pipelineCache.set(wgsl, p);
+      m.catch(() => this.modules.delete(wgsl));
+      this.modules.set(wgsl, m);
+    }
+    return m;
+  }
+
+  /** Pipelines are cached by source and entry points; `depth` for 3D scenes. */
+  private pipeline(wgsl: string, vs = 'vs', fs = 'fs', depth = false): Promise<GPURenderPipeline> {
+    const key = `${vs}|${fs}|${depth}|${wgsl}`;
+    let p = this.pipelineCache.get(key);
+    if (!p) {
+      p = this.module(wgsl).then((module) =>
+        this.device.createRenderPipelineAsync({
+          layout: this.pipelineLayout,
+          vertex: { module, entryPoint: vs },
+          fragment: { module, entryPoint: fs, targets: [{ format: BUFFER_FORMAT }] },
+          primitive: { topology: 'triangle-list', cullMode: 'none' },
+          depthStencil: depth ? { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'less-equal' } : undefined,
+        }),
+      );
+      p.catch(() => this.pipelineCache.delete(key));
+      this.pipelineCache.set(key, p);
     }
     return p;
   }

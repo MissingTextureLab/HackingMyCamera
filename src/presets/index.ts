@@ -3,7 +3,7 @@
 // Macros: A = drag x, B = drag y, C = two-finger twist.
 // Mods move params on their own (LFO) or with the finger (touch).
 
-import { cam, effect, lfo, noise, o, osc, touch } from '../dsl';
+import { cam, effect, lfo, motion, noise, o, osc, touch } from '../dsl';
 import type { EffectGraph } from '../graph/types';
 
 // Optics: what a cheap lens does to light. Barrel, chromatic fringes, vignette.
@@ -104,4 +104,39 @@ const orden = effect({ id: 'orden', code: '50', name: 'Orden' }, (m) => {
   s.out(0);
 });
 
-export const PRESETS: EffectGraph[] = [lente, trama, espejo, halo, muda, barrido, letra, vitral, senal, orden];
+/* ---------- 3D: tilting the phone orbits the camera, like looking through a window ---------- */
+
+// Relief: the image as terrain, drawn as ridge lines with hidden lines removed.
+const relieve = effect({ id: 'relieve', code: '60', name: 'Relieve' }, (m) => {
+  const r = cam().blur(3).relief(0.5, 0, 0.55, 3.2, 1.5);
+  m.macro('ALTURA', r, 'height', 0, 1.2);
+  m.macro('DISTANCIA', r, 'dist', 1.8, 6);
+  m.macro('TRAZO', r, 'thickness', 0.5, 5);
+  m.mod(r, 'yaw', motion('x'), -0.8, 0.8, { smooth: 0.85 });
+  m.mod(r, 'pitch', motion('y'), 0.15, 1.1, { smooth: 0.85 });
+  r.out(0);
+});
+
+// Volume: the camera as a cloud of points, pushed in depth by brightness.
+const nube = effect({ id: 'nube', code: '63', name: 'Nube' }, (m) => {
+  const c = cam().cloud(0.8, 3, 0, 0, 2.6, 0);
+  m.macro('PROFUNDIDAD', c, 'depth', 0, 2.5);
+  m.macro('TAMAÑO', c, 'size', 1, 10);
+  m.macro('DISPERSIÓN', c, 'scatter', 0, 0.6);
+  m.mod(c, 'yaw', motion('x'), -0.9, 0.9, { smooth: 0.85 });
+  m.mod(c, 'pitch', motion('y'), -0.6, 0.6, { smooth: 0.85 });
+  c.out(0);
+});
+
+// Mass: a city of blocks, as tall as the image is bright.
+const ciudad = effect({ id: 'ciudad', code: '66', name: 'Ciudad' }, (m) => {
+  const c = cam().blur(6).city(0.8, 0, 0.6, 3.4, 0.15);
+  m.macro('ALTURA', c, 'height', 0, 2);
+  m.macro('DISTANCIA', c, 'dist', 2, 7);
+  m.macro('CALLES', c, 'gap', 0, 0.6);
+  m.mod(c, 'yaw', motion('x'), -0.9, 0.9, { smooth: 0.85 });
+  m.mod(c, 'pitch', motion('y'), 0.2, 1.2, { smooth: 0.85 });
+  c.out(0);
+});
+
+export const PRESETS: EffectGraph[] = [lente, trama, espejo, halo, muda, barrido, letra, vitral, senal, orden, relieve, nube, ciudad];

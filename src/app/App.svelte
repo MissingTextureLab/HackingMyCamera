@@ -5,6 +5,7 @@
   import { PRESETS } from '../presets';
   import { cameraSupported, MAX_ZOOM, openCamera, type CameraFeed, type Facing } from '../io/camera';
   import { Gestures } from './gestures';
+  import { Tilt } from '../io/motion';
   import type { FromWorker, MacroInfo, ToWorker } from '../render/protocol';
   import type { EngineStats } from '../gpu/engine';
 
@@ -54,6 +55,7 @@
   let defaults: number[] = [];
   let pinchFrom = 1;
   let twistFrom = 0;
+  let tilt: Tilt | null = null;
   let stats = $state<{ fps: number; stats: EngineStats } | null>(null);
 
   const timers: Record<string, ReturnType<typeof setTimeout>> = {};
@@ -228,6 +230,7 @@
       onDoubleTap() {
         defaults.forEach((v, i) => setMacro(i, v));
         applyZoom(1);
+        tilt?.recalibrate();
         buzz(8);
       },
       onEnd() {
@@ -289,7 +292,9 @@
     const ro = new ResizeObserver(() => send({ type: 'resize', ...physicalSize() }));
     ro.observe(canvas);
     const gestures = attachGestures(canvas);
+    tilt = new Tilt((state) => send({ type: 'motion', state }));
     return () => {
+      tilt?.destroy();
       gestures.destroy();
       ro.disconnect();
       feed?.stop();

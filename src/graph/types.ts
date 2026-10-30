@@ -19,11 +19,14 @@ export interface Macro {
 
 export type LfoShape = 'sine' | 'tri' | 'saw' | 'square' | 'random' | 'noise';
 export type TouchChannel = 'x' | 'y' | 'down' | 'vx' | 'vy' | 'count' | 'pinch';
+/** Phone tilt relative to how it was held when the effect started: x = left/right, y = forward/back. */
+export type MotionChannel = 'x' | 'y';
 
 /** A signal normalized to 0…1 (see src/signals). */
 export type SignalSource =
   | { kind: 'lfo'; shape: LfoShape; /** Hz */ rate: number; phase?: number }
-  | { kind: 'touch'; channel: TouchChannel };
+  | { kind: 'touch'; channel: TouchChannel }
+  | { kind: 'motion'; channel: MotionChannel };
 
 /** Drives one param from a signal every frame. */
 export interface Mod {

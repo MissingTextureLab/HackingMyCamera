@@ -143,6 +143,9 @@ scope.addEventListener('message', async (e) => {
       case 'touch':
         signals.setTouch(msg.state);
         break;
+      case 'motion':
+        signals.setMotion(msg.state);
+        break;
       case 'thumb':
         await engine!.addThumb(msg.id, msg.canvas, validateEffect(msg.graph));
         break;

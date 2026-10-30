@@ -157,7 +157,10 @@ export function validateEffect(input: unknown): EffectGraph {
       } else if (s.kind === 'touch') {
         if (!isStr(s.channel) || !TOUCH_CHANNELS.includes(s.channel)) err(`${at}.source.channel`, `one of ${TOUCH_CHANNELS.join(', ')}`);
         else source = { kind: 'touch', channel: s.channel as never };
-      } else err(`${at}.source.kind`, 'must be "lfo" or "touch"');
+      } else if (s.kind === 'motion') {
+        if (s.channel !== 'x' && s.channel !== 'y') err(`${at}.source.channel`, 'one of x, y');
+        else source = { kind: 'motion', channel: s.channel };
+      } else err(`${at}.source.kind`, 'must be "lfo", "touch" or "motion"');
       if (m.smooth !== undefined && (!isNum(m.smooth) || m.smooth < 0 || m.smooth >= 1)) err(`${at}.smooth`, 'from 0 up to (not including) 1');
       if (m.quantize !== undefined && (!isNum(m.quantize) || m.quantize <= 0)) err(`${at}.quantize`, 'must be more than 0');
       if (target && r && source) {

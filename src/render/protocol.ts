@@ -2,7 +2,7 @@
 
 import type { EffectGraph } from '../graph/types';
 import type { EngineStats } from '../gpu/engine';
-import type { TouchSnapshot } from '../signals';
+import type { MotionSnapshot, TouchSnapshot } from '../signals';
 
 export type ToWorker =
   | { type: 'init'; canvas: OffscreenCanvas; width: number; height: number }
@@ -13,6 +13,7 @@ export type ToWorker =
   | { type: 'param'; slot: number; value: number }
   | { type: 'zoom'; digital: number }
   | { type: 'touch'; state: TouchSnapshot }
+  | { type: 'motion'; state: MotionSnapshot }
   | { type: 'thumb'; id: string; canvas: OffscreenCanvas; graph: EffectGraph }
   | { type: 'photo' }
   | { type: 'recStart' }

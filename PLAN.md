@@ -10,6 +10,11 @@ Estado (2026-10-30):
   - señales LFO y tacto;
   - galería de 10 efectos con miniaturas en vivo, cada uno sobre una cuestión visual distinta (ver DESIGN.md, "La galería");
   - formato JSON con validador.
+- **H3 hecho**, verificado en escritorio con la carta de ajuste y giroscopio simulado; pendiente de probar en el móvil:
+  - nodo `render3d` propio (sin Three.js): geometría generada en la GPU, con profundidad;
+  - tres escenas: RELIEVE, NUBE y CIUDAD;
+  - señal `motion`: inclinación del móvil.
+  - La señal `image` (luminancia y movimiento de la cámara) queda pendiente.
 - **Fuera del alcance por decisión del usuario:** micrófono, tanto como señal como audio en la grabación.
 - Identidad visual: `DESIGN.md`.
 

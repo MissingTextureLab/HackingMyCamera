@@ -12,6 +12,9 @@
 //                 its own pass(es); each pass defines
 //                 fn PASS(uv: vec2f, ...params) -> vec4f
 //                 reading its inputs as T0, T1 (see FILTER_PRELUDE).
+//   render3d      draws geometry with depth into its own texture; reads its
+//                 input image as T0 (also in the vertex stage). Params are
+//                 read through generated accessors p_<name>(). See SCENE_PRELUDE.
 //
 // Module-scope names available to snippets: G (globals: time, dt, res, camFit),
 // FC (fragment coordinate in pixels), PI, TAU, hash3, vnoise, luma,
@@ -19,7 +22,14 @@
 //
 // No code here is taken from hydra-synth (AGPL); only op names and ideas.
 
-export type OpKind = 'source' | 'coord' | 'color' | 'combine' | 'combineCoord' | 'texture' | 'filter';
+export type OpKind = 'source' | 'coord' | 'color' | 'combine' | 'combineCoord' | 'texture' | 'filter' | 'render3d';
+
+/** One draw call of a 3D scene: entry points and how many vertices (no vertex buffers). */
+export interface SceneDraw {
+  vs: string;
+  fs: string;
+  count: number;
+}
 
 export interface FilterPass {
   /** What T0, T1… are: the op's inputs ('in0', 'in1') or earlier passes ('p0'…). */
@@ -45,6 +55,8 @@ export interface OpDef {
   inputs?: number;
   /** filter only: the passes, in order; the last one is the op's result */
   passes?: FilterPass[];
+  /** render3d only: WGSL with the entry points, and the draws, in order */
+  scene?: { wgsl: string; draws: SceneDraw[] };
 }
 
 /** Number of inputs a node of this op must have. */
@@ -58,6 +70,8 @@ export function arity(def: OpDef): number {
       return 2;
     case 'filter':
       return def.inputs ?? 1;
+    case 'render3d':
+      return 1;
     default:
       return 1;
   }
@@ -765,6 +779,238 @@ fn PASS(uv: vec2f, threshold: f32, reach: f32, angle: f32) -> vec4f {
     },
   ],
 });
+
+/* ---------- 3D scenes (geometry from vertex_index, no vertex buffers) ---------- */
+
+// Relief: the image as terrain seen from above, drawn as ridge lines with
+// hidden-line removal (a dark fill draws first and occludes what's behind).
+const RELIEF_COLS = 128;
+const RELIEF_ROWS = 72;
+def({
+  name: 'relief',
+  kind: 'render3d',
+  params: [p('height', 0.5), p('yaw', 0), p('pitch', 0.55), p('dist', 3.2), p('thickness', 1.5)],
+  scene: {
+    draws: [
+      { vs: 'vs_fill', fs: 'fs_fill', count: (RELIEF_COLS - 1) * (RELIEF_ROWS - 1) * 6 },
+      { vs: 'vs_line', fs: 'fs_line', count: (RELIEF_COLS - 1) * RELIEF_ROWS * 6 },
+    ],
+    wgsl: /* wgsl */ `
+const COLS: u32 = ${RELIEF_COLS}u;
+const ROWS: u32 = ${RELIEF_ROWS}u;
+
+fn reliefPos(c: u32, r: u32) -> vec3f {
+  let uv = vec2f(f32(c) / f32(COLS - 1u), f32(r) / f32(ROWS - 1u));
+  let depth = 2.0 * G.res.y / G.res.x; // keep the image proportions on the floor
+  let h = luma(imageAt(uv).rgb) * p_height();
+  return vec3f((uv.x - 0.5) * 2.0, h, (uv.y - 0.5) * depth);
+}
+
+fn reliefCamera() -> mat4x4f {
+  return orbit(p_yaw(), p_pitch(), p_dist(), vec3f(0.0));
+}
+
+struct V3 {
+  @builtin(position) pos: vec4f,
+  @location(0) shade: f32,
+};
+
+@vertex
+fn vs_fill(@builtin(vertex_index) i: u32) -> V3 {
+  let quad = i / 6u;
+  let k = i % 6u;
+  var dc = array<u32, 6>(0u, 1u, 0u, 0u, 1u, 1u);
+  var dr = array<u32, 6>(0u, 0u, 1u, 1u, 0u, 1u);
+  let c = quad % (COLS - 1u) + dc[k];
+  let r = quad / (COLS - 1u) + dr[k];
+  var o: V3;
+  o.pos = reliefCamera() * vec4f(reliefPos(c, r), 1.0);
+  o.shade = 0.0;
+  return o;
+}
+
+@fragment
+fn fs_fill(in: V3) -> @location(0) vec4f {
+  return vec4f(CITRINK[0], 1.0);
+}
+
+// Each ridge segment is a screen-space quad, so lines keep their thickness.
+@vertex
+fn vs_line(@builtin(vertex_index) i: u32) -> V3 {
+  let seg = i / 6u;
+  let k = i % 6u;
+  let c = seg % (COLS - 1u);
+  let r = seg / (COLS - 1u);
+  let cam = reliefCamera();
+  let pa = reliefPos(c, r);
+  let pb = reliefPos(c + 1u, r);
+  let a = cam * vec4f(pa, 1.0);
+  let b = cam * vec4f(pb, 1.0);
+  var ends = array<u32, 6>(0u, 1u, 0u, 0u, 1u, 1u);
+  var side = array<f32, 6>(-1.0, -1.0, 1.0, 1.0, -1.0, 1.0);
+  let d = normalize((b.xy / b.w - a.xy / a.w) * G.res + vec2f(0.00001, 0.0));
+  let n = vec2f(-d.y, d.x) * p_thickness() / G.res;
+  let q = select(a, b, ends[k] == 1u);
+  var o: V3;
+  // nudge towards the camera so the line wins over its own fill
+  o.pos = vec4f(q.xy + n * side[k] * q.w, q.z - 0.002 * q.w, q.w);
+  o.shade = (pa.y + pb.y) * 0.5 / max(p_height(), 0.001);
+  return o;
+}
+
+@fragment
+fn fs_line(in: V3) -> @location(0) vec4f {
+  return vec4f(CITRINK[u32(clamp(4.0 + in.shade * 3.99, 4.0, 7.0))], 1.0);
+}`,
+  },
+});
+
+// Cloud: one point per sample, coloured by the camera, pushed in depth by its
+// luminance. Points are round quads that shrink with distance.
+const CLOUD_X = 120;
+const CLOUD_Y = 210;
+def({
+  name: 'cloud',
+  kind: 'render3d',
+  params: [p('depth', 0.8), p('size', 3), p('yaw', 0), p('pitch', 0), p('dist', 2.6), p('scatter', 0)],
+  scene: {
+    draws: [{ vs: 'vs_points', fs: 'fs_points', count: CLOUD_X * CLOUD_Y * 6 }],
+    wgsl: /* wgsl */ `
+const NX: u32 = ${CLOUD_X}u;
+const NY: u32 = ${CLOUD_Y}u;
+
+struct VP {
+  @builtin(position) pos: vec4f,
+  @location(0) col: vec3f,
+  @location(1) corner: vec2f,
+};
+
+@vertex
+fn vs_points(@builtin(vertex_index) i: u32) -> VP {
+  let id = i / 6u;
+  let k = i % 6u;
+  let uv = (vec2f(f32(id % NX), f32(id / NX)) + 0.5) / vec2f(f32(NX), f32(NY));
+  let c = imageAt(uv);
+  let asp = G.res.x / G.res.y;
+  let jitter = (vec3f(hash3(vec3f(uv, 1.0)), hash3(vec3f(uv, 2.0)), hash3(vec3f(uv, 3.0))) - 0.5) * p_scatter();
+  let world = vec3f((uv.x - 0.5) * 2.0 * asp, (0.5 - uv.y) * 2.0, (luma(c.rgb) - 0.5) * p_depth()) + jitter;
+  let clip = orbit(p_yaw(), p_pitch(), p_dist(), vec3f(0.0)) * vec4f(world, 1.0);
+  var cx = array<f32, 6>(-1.0, 1.0, -1.0, -1.0, 1.0, 1.0);
+  var cy = array<f32, 6>(-1.0, -1.0, 1.0, 1.0, -1.0, 1.0);
+  let corner = vec2f(cx[k], cy[k]);
+  var o: VP;
+  // a constant clip-space offset becomes smaller in NDC the further away it is
+  o.pos = vec4f(clip.xy + corner * p_size() / G.res * p_dist(), clip.z, clip.w);
+  o.col = c.rgb;
+  o.corner = corner;
+  return o;
+}
+
+@fragment
+fn fs_points(in: VP) -> @location(0) vec4f {
+  if (dot(in.corner, in.corner) > 1.0) { discard; }
+  return vec4f(in.col, 1.0);
+}`,
+  },
+});
+
+// City: a block per cell, as tall as the image is bright, coloured by height
+// along the Citrink ramp and lit from one side.
+const CITY_X = 32;
+const CITY_Z = 56;
+const CUBE_FACES: [number, number, number][][] = [
+  [[1, 0, 0], [1, 1, 0], [1, 1, 1], [1, 0, 0], [1, 1, 1], [1, 0, 1]],
+  [[0, 0, 1], [0, 1, 1], [0, 1, 0], [0, 0, 1], [0, 1, 0], [0, 0, 0]],
+  [[0, 1, 0], [0, 1, 1], [1, 1, 1], [0, 1, 0], [1, 1, 1], [1, 1, 0]],
+  [[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 0], [1, 0, 1], [0, 0, 1]],
+  [[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 0, 1], [1, 1, 1], [0, 1, 1]],
+  [[1, 0, 0], [0, 0, 0], [0, 1, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0]],
+];
+const CUBE_NORMALS = ['1.0, 0.0, 0.0', '-1.0, 0.0, 0.0', '0.0, 1.0, 0.0', '0.0, -1.0, 0.0', '0.0, 0.0, 1.0', '0.0, 0.0, -1.0'];
+const v3 = (v: number[]) => `vec3f(${v.map((x) => x.toFixed(1)).join(', ')})`;
+def({
+  name: 'city',
+  kind: 'render3d',
+  params: [p('height', 0.8), p('yaw', 0), p('pitch', 0.6), p('dist', 3.4), p('gap', 0.15)],
+  scene: {
+    draws: [{ vs: 'vs_city', fs: 'fs_city', count: CITY_X * CITY_Z * 36 }],
+    wgsl: /* wgsl */ `
+const CX: u32 = ${CITY_X}u;
+const CZ: u32 = ${CITY_Z}u;
+var<private> CUBE: array<vec3f, 36> = array<vec3f, 36>(${CUBE_FACES.flat().map(v3).join(', ')});
+var<private> NORMALS: array<vec3f, 6> = array<vec3f, 6>(${CUBE_NORMALS.map((n) => `vec3f(${n})`).join(', ')});
+
+struct VC {
+  @builtin(position) pos: vec4f,
+  @location(0) col: vec3f,
+};
+
+@vertex
+fn vs_city(@builtin(vertex_index) i: u32) -> VC {
+  let id = i / 36u;
+  let k = i % 36u;
+  let gx = id % CX;
+  let gz = id / CX;
+  let uv = (vec2f(f32(gx), f32(gz)) + 0.5) / vec2f(f32(CX), f32(CZ));
+  let l = luma(imageAt(uv).rgb);
+  let depth = 2.0 * G.res.y / G.res.x;
+  let cellW = 2.0 / f32(CX);
+  let cellD = depth / f32(CZ);
+  let g = clamp(p_gap(), 0.0, 0.9);
+  let h = 0.01 + l * p_height();
+  let base = vec3f(-1.0 + f32(gx) * cellW, 0.0, -depth * 0.5 + f32(gz) * cellD);
+  let local = CUBE[k];
+  let world = base + vec3f((g * 0.5 + local.x * (1.0 - g)) * cellW, local.y * h, (g * 0.5 + local.z * (1.0 - g)) * cellD);
+  let light = 0.45 + 0.55 * max(dot(NORMALS[k / 6u], normalize(vec3f(0.4, 0.9, 0.3))), 0.0);
+  var o: VC;
+  o.pos = orbit(p_yaw(), p_pitch(), p_dist(), vec3f(0.0, 0.2, 0.0)) * vec4f(world, 1.0);
+  o.col = CITRINK[u32(clamp(1.0 + l * 6.99, 1.0, 7.0))] * light;
+  return o;
+}
+
+@fragment
+fn fs_city(in: VC) -> @location(0) vec4f {
+  return vec4f(in.col, 1.0);
+}`,
+  },
+});
+
+/** Helpers for 3D scenes: projection, an orbit camera and the input image. */
+export const SCENE_PRELUDE = /* wgsl */ `
+fn perspective(fovy: f32, aspect: f32, near: f32, far: f32) -> mat4x4f {
+  let f = 1.0 / tan(fovy * 0.5);
+  let nf = 1.0 / (near - far);
+  // WebGPU clip depth is 0…1
+  return mat4x4f(
+    vec4f(f / aspect, 0.0, 0.0, 0.0),
+    vec4f(0.0, f, 0.0, 0.0),
+    vec4f(0.0, 0.0, far * nf, -1.0),
+    vec4f(0.0, 0.0, far * near * nf, 0.0));
+}
+
+// (\`target\` is a reserved word in WGSL)
+fn lookAt(eye: vec3f, focus: vec3f) -> mat4x4f {
+  let z = normalize(eye - focus);
+  let x = normalize(cross(vec3f(0.0, 1.0, 0.0), z));
+  let y = cross(z, x);
+  return mat4x4f(
+    vec4f(x.x, y.x, z.x, 0.0),
+    vec4f(x.y, y.y, z.y, 0.0),
+    vec4f(x.z, y.z, z.z, 0.0),
+    vec4f(-dot(x, eye), -dot(y, eye), -dot(z, eye), 1.0));
+}
+
+/** Perspective camera orbiting \`focus\`: yaw around Y, pitch up from the horizon. */
+fn orbit(yaw: f32, pitch: f32, dist: f32, focus: vec3f) -> mat4x4f {
+  let pt = clamp(pitch, -1.4, 1.4);
+  let eye = focus + max(dist, 0.1) * vec3f(cos(pt) * sin(yaw), sin(pt), cos(pt) * cos(yaw));
+  return perspective(0.8, G.res.x / G.res.y, 0.05, 50.0) * lookAt(eye, focus);
+}
+
+fn imageAt(uv: vec2f) -> vec4f {
+  return textureSampleLevel(T0, samp, uv, 0.0);
+}
+`;
 
 /** Helpers for filter passes: separable 9-tap gaussian and luminance lookup. */
 export const FILTER_PRELUDE = /* wgsl */ `
