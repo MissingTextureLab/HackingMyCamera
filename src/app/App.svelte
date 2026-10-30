@@ -49,6 +49,22 @@
   let notice = $state<string | null>(null);
   let hud = $state(false);
 
+  // revelado mode (DESIGN.md): remembered across sessions
+  const GRADES = ['ÁCIDO', 'MORADO'] as const;
+  let grade = $state<0 | 1>(0);
+  try {
+    grade = localStorage.getItem('hmc.grade') === '1' ? 1 : 0;
+  } catch {}
+  function toggleGrade() {
+    grade = grade === 0 ? 1 : 0;
+    try {
+      localStorage.setItem('hmc.grade', String(grade));
+    } catch {}
+    send({ type: 'grade', mode: grade });
+    sabotage();
+    buzz(8);
+  }
+
   // gestures on the viewfinder
   let gesture = $state<'none' | 'drag' | 'pinch'>('none');
   let zoom = $state(1);
@@ -93,6 +109,7 @@
         workerReady = true;
         selectEffect(effectId, false);
         for (const t of pendingThumbs.splice(0)) sendThumb(t.id, t.canvas);
+        send({ type: 'grade', mode: grade });
         startCamera();
         break;
       case 'error':
@@ -315,6 +332,9 @@
   ></canvas>
 
   <div class="tag tl label"><span class="muted">FX-{active.code}</span><span>{active.name}</span></div>
+  <button class="tag tc label" type="button" onclick={toggleGrade} aria-label="Revelado: {GRADES[grade]}. Toca para cambiar">
+    <span class="swatch" class:violet={grade === 1}></span><span>{GRADES[grade]}</span>
+  </button>
   <button class="tag tr label" type="button" onclick={statusTap} aria-label="Cámara activa">
     <span class="led" class:on={source === 'camera'} class:rec={recording}></span><span>{lens}</span>
   </button>
@@ -422,6 +442,22 @@
     top: calc(var(--space-4) + env(safe-area-inset-top, 0px));
     right: var(--space-4);
     cursor: pointer;
+  }
+  .tc {
+    top: calc(var(--space-4) + env(safe-area-inset-top, 0px));
+    left: 50%;
+    transform: translateX(-50%);
+    cursor: pointer;
+  }
+  .swatch {
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-0);
+    background: var(--acid);
+  }
+  /* the MORADO grade's mid tone: the one colour outside Citrink, shown only here */
+  .swatch.violet {
+    background: #8c3fbf;
   }
   .led {
     width: 8px;

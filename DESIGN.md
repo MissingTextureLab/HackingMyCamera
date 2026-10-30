@@ -97,6 +97,7 @@ La imagen es la superficie de control. Ningún gesto abre menús.
 | Doble toque | Restablece macros y zoom | — |
 | Deslizar la tira de efectos | Recorre la galería | — |
 | Tocar / mantener el obturador | Foto / grabar mientras se mantiene | Sello `GUARDADO` / `REC` |
+| Toque en la etiqueta central | Cambia el revelado: ÁCIDO ↔ MORADO | el nombre del modo |
 | Triple toque en la etiqueta de cámara | HUD de depuración | fps, ms de GPU, resolución, pases |
 
 Reglas:
@@ -149,9 +150,13 @@ Cada efecto expone hasta tres macros con nombre propio (A, B, C; ver *Gestos*).
 Todo lo que sale de la app (visor, fotos, vídeos y miniaturas) pasa por el mismo revelado final. Es lo que hace que una imagen sea reconocible sin ver la interfaz, igual que un aparato de Teenage Engineering suena a sí mismo en cualquier preset.
 
 1. **Curva de tono:** una S suave, siempre la misma.
-2. **Mapa de degradado Citrink:** la luminosidad se relee a lo largo de la rampa de la paleta (`viewfinder` → `panel` → `panel-deep` → `lagoon` → `grass` → `acid` → `flash` → blanco). El color de la cámara solo asoma al 30 %.
+2. **Mapa de degradado, en uno de dos modos** (etiqueta central de la pantalla; la app recuerda el último):
+   - **ÁCIDO:** la rampa Citrink: `viewfinder` → `panel` → `panel-deep` → `lagoon` → `grass` → `acid` → `flash` → blanco.
+   - **MORADO:** los mismos escalones de luminosidad, en violeta: `#201533` → `#2f1d4e` → `#47257a` → `#66309f` → `#8c3fbf` → `#b763d6` → `#e8b4f0` → `#fff4ff`. Es la única excepción a "solo Citrink", y solo en la imagen; la interfaz sigue en Citrink (salvo el cuadradito de muestra de la etiqueta).
+
+   En los dos, el color de la cámara solo asoma al 30 %. No hay más modos.
 3. **Tramado ordenado:** 12 niveles con una matriz Bayer de 4×4 a 2 píxeles (1 píxel en las miniaturas). Es la textura de la cultura Lospec y de las pantallas de aparato.
-4. **Sello de fecha:** en las fotos y en los vídeos, abajo a la derecha, como el dorso de fecha de las cámaras de carrete: `FX07 TRAMA 26.10.30`, en Doto, color `flash` con contorno `viewfinder`. No aparece en el visor, donde ya está la etiqueta.
+4. **Sello de fecha:** en las fotos y en los vídeos, abajo a la derecha, como el dorso de fecha de las cámaras de carrete: `FX07 TRAMA 26.10.30`, en Doto, en el tono claro del modo (amarillo `flash` en ÁCIDO, lila `#e8b4f0` en MORADO) con contorno `viewfinder`. No aparece en el visor, donde ya está la etiqueta.
 
 Los valores viven en `HOUSE` (`src/gpu/engine.ts`). Un efecto nuevo no se diseña "a color": se diseña para que funcione a través del revelado.
 

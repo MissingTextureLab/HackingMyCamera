@@ -27,7 +27,7 @@ struct Present {
   stamp: f32,
   count: f32,
   cellH: f32,
-  pad: f32,
+  mode: f32,
   chars: array<vec4u, 8>,
 };
 @group(0) @binding(0) var<uniform> U: Present;
@@ -38,7 +38,9 @@ struct Present {
 const ATLAS_COUNT: f32 = ${STAMP_CHARS.length}.0;
 const CHAR_ASPECT: f32 = ${STAMP_W / STAMP_H};
 
-var<private> RAMP: array<vec3f, 8> = array<vec3f, 8>(
+// Two grades with the same tonal structure: 0 ÁCIDO (the Citrink ramp),
+// 1 MORADO (the same steps of lightness, in violet).
+var<private> RAMP: array<vec3f, 16> = array<vec3f, 16>(
   vec3f(0.12549, 0.08235, 0.2),
   vec3f(0.14510, 0.14118, 0.27451),
   vec3f(0.14510, 0.30196, 0.43922),
@@ -46,8 +48,20 @@ var<private> RAMP: array<vec3f, 8> = array<vec3f, 8>(
   vec3f(0.32157, 0.76471, 0.24706),
   vec3f(0.69804, 0.85098, 0.25882),
   vec3f(0.98824, 0.96471, 0.37647),
-  vec3f(1.0, 1.0, 1.0)
+  vec3f(1.0, 1.0, 1.0),
+  vec3f(0.12549, 0.08235, 0.2),
+  vec3f(0.18431, 0.11373, 0.30588),
+  vec3f(0.27843, 0.14510, 0.47843),
+  vec3f(0.40000, 0.18824, 0.62353),
+  vec3f(0.54902, 0.24706, 0.74902),
+  vec3f(0.71765, 0.38824, 0.83922),
+  vec3f(0.90980, 0.70588, 0.94118),
+  vec3f(1.0, 0.95686, 1.0)
 );
+
+fn rampColor(i: u32) -> vec3f {
+  return RAMP[min(u32(U.mode), 1u) * 8u + min(i, 7u)];
+}
 
 struct VSOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 
@@ -68,7 +82,7 @@ fn bayer4(p: vec2u) -> f32 {
 fn rampAt(t: f32) -> vec3f {
   let x = clamp(t, 0.0, 1.0) * 7.0;
   let i = u32(min(floor(x), 6.0));
-  return mix(RAMP[i], RAMP[i + 1u], x - f32(i));
+  return mix(rampColor(i), rampColor(i + 1u), x - f32(i));
 }
 
 // coverage of the stamp text at pixel px (0 outside it)
@@ -91,7 +105,7 @@ fn fs(in: VSOut) -> @location(0) vec4f {
   var l = dot(c, vec3f(0.2126, 0.7152, 0.0722));
   if (U.xerox > 0.5) {
     // photocopy frame: hard threshold onto the darkest and lightest Citrink colours
-    return select(vec4f(RAMP[0], 1.0), vec4f(1.0), l > 0.42);
+    return select(vec4f(rampColor(0u), 1.0), vec4f(rampColor(7u), 1.0), l > 0.42);
   }
   l = mix(l, l * l * (3.0 - 2.0 * l), 0.5);
   let steps = max(U.levels, 2.0) - 1.0;
@@ -105,8 +119,8 @@ fn fs(in: VSOut) -> @location(0) vec4f {
     let outline = max(
       max(stampInk(in.pos.xy + vec2f(d, 0.0), res), stampInk(in.pos.xy - vec2f(d, 0.0), res)),
       max(stampInk(in.pos.xy + vec2f(0.0, d), res), stampInk(in.pos.xy - vec2f(0.0, d), res)));
-    col = mix(col, RAMP[0], outline);
-    col = mix(col, RAMP[6], stampInk(in.pos.xy, res));
+    col = mix(col, rampColor(0u), outline);
+    col = mix(col, rampColor(6u), stampInk(in.pos.xy, res));
   }
   return vec4f(col, 1.0);
 }
@@ -346,6 +360,7 @@ class Stage {
     f[4] = this.stamp ? 1 : 0;
     f[5] = this.stampCount;
     f[6] = Math.max(8, Math.round(H * 0.022));
+    f[7] = this.e.grade;
     d.queue.writeBuffer(this.presentUniform, 0, this.presentData);
     const displayIndex = OUTPUTS.indexOf(eff.compiled.display);
     const present = enc.beginRenderPass({
@@ -473,6 +488,8 @@ export class Engine {
   camSize: [number, number] = [0, 0];
   mirror = false;
   zoom = 1;
+  /** Revelado mode, shared by every stage: 0 ÁCIDO, 1 MORADO. */
+  grade = 0;
 
   private pipelineLayout: GPUPipelineLayout;
   readonly computeLayout: GPUBindGroupLayout;
@@ -655,6 +672,10 @@ export class Engine {
   }
 
   /** Digital zoom on the camera image (whatever the hardware zoom can't cover). */
+  setGrade(mode: number) {
+    this.grade = mode === 1 ? 1 : 0;
+  }
+
   setZoom(zoom: number) {
     this.zoom = Math.max(1, zoom);
     this.forEachStage((s) => s.updateCamFit());

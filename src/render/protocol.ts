@@ -12,6 +12,7 @@ export type ToWorker =
   | { type: 'effect'; graph: EffectGraph }
   | { type: 'param'; slot: number; value: number }
   | { type: 'zoom'; digital: number }
+  | { type: 'grade'; mode: 0 | 1 }
   | { type: 'touch'; state: TouchSnapshot }
   | { type: 'motion'; state: MotionSnapshot }
   | { type: 'thumb'; id: string; canvas: OffscreenCanvas; graph: EffectGraph }

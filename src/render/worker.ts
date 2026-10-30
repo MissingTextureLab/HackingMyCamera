@@ -147,6 +147,9 @@ scope.addEventListener('message', async (e) => {
       case 'param':
         engine?.setParam(msg.slot, msg.value);
         break;
+      case 'grade':
+        engine?.setGrade(msg.mode);
+        break;
       case 'zoom':
         engine?.setZoom(msg.digital);
         break;
