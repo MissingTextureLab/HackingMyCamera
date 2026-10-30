@@ -17,6 +17,7 @@ struct Globals {
   dt: f32,
   res: vec2f,
   camFit: vec4f,
+  hist: vec4f,
 };
 @group(0) @binding(0) var<uniform> G: Globals;
 @group(0) @binding(1) var<uniform> P: array<vec4f, 64>;
@@ -72,6 +73,7 @@ struct Globals {
   dt: f32,
   res: vec2f,
   camFit: vec4f, // xy: uv scale for cover fit and zoom, z: mirror (0/1)
+  hist: vec4f, // camera history: x newest layer, y layers filled, z layers per second, w layer count
 };
 @group(0) @binding(0) var<uniform> G: Globals;
 @group(0) @binding(1) var<uniform> P: array<vec4f, 64>;
@@ -82,6 +84,7 @@ struct Globals {
 @group(0) @binding(6) var t_o2: texture_2d<f32>;
 @group(0) @binding(7) var t_o3: texture_2d<f32>;
 @group(0) @binding(8) var t_glyphs: texture_2d<f32>;
+@group(0) @binding(9) var t_hist: texture_2d_array<f32>;
 @group(1) @binding(0) var T0: texture_2d<f32>;
 @group(1) @binding(1) var T1: texture_2d<f32>;
 @group(1) @binding(2) var T2: texture_2d<f32>;
@@ -91,6 +94,27 @@ fn sampleCam(uv: vec2f) -> vec4f {
   var q = (uv - 0.5) * G.camFit.xy + 0.5;
   if (G.camFit.z > 0.5) { q.x = 1.0 - q.x; }
   return textureSampleLevel(t_cam, samp, q, 0.0);
+}
+
+fn histLayer(q: vec2f, back: u32) -> vec4f {
+  let n = u32(G.hist.w);
+  return textureSampleLevel(t_hist, samp, q, (u32(G.hist.x) + n - back % n) % n, 0.0);
+}
+
+// The camera as it was some seconds ago (up to the history's length), blending
+// between stored frames.
+fn sampleCamAgo(uv: vec2f, seconds: f32) -> vec4f {
+  var q = (uv - 0.5) * G.camFit.xy + 0.5;
+  if (G.camFit.z > 0.5) { q.x = 1.0 - q.x; }
+  let live = textureSampleLevel(t_cam, samp, q, 0.0);
+  let filled = G.hist.y;
+  if (filled < 1.0) { return live; }
+  // 0 = live, 1 = newest stored frame, 2 = the one before…
+  let f = clamp(seconds * G.hist.z, 0.0, filled);
+  if (f < 1.0) { return mix(live, histLayer(q, 0u), f); }
+  let i = floor(f) - 1.0;
+  let next = min(i + 1.0, filled - 1.0);
+  return mix(histLayer(q, u32(i)), histLayer(q, u32(next)), f - floor(f));
 }
 
 struct VSOut {

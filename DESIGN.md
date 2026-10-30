@@ -130,7 +130,7 @@ Cada efecto trata una sola cuestión de lo visual. Si dos efectos responden a la
 | FX-12 | ESPEJO | Simetría | espejo en abismo: reflejos anidados y espejados, sin marco; cada rebote los degrada con bitcrush (bloques y menos color) |
 | FX-14 | HALO | Luz | pintar con luz: solo lo brillante deja estela, como una exposición larga; la estela fresca es verde y la vieja pasa a morado y se deshace en humo; al hacer foto o grabar, un fogonazo la borra y empieza una exposición nueva |
 | FX-19 | MUDA | Memoria | solo lo que se mueve deja fantasmas de color, que fluyen sobre un relieve de ruido y se arrastran en bloques siguiendo el movimiento real (datamosh); lo quieto queda nítido |
-| FX-22 | BARRIDO | Tiempo | slit-scan con rendija horizontal, vertical o radial |
+| FX-22 | BARRIDO | Tiempo | máquina del tiempo: cada zona de la imagen va con su propio retraso, hasta 2 s, según un mapa (degradado, anillos, ruido o el brillo de la imagen) repetible en bandas; los cuerpos se estiran y se derriten |
 | FX-31 | LETRA | Tipografía | la imagen escrita con caracteres reales de Martian Mono, ordenados por densidad |
 | FX-44 | SEÑAL | Vídeo analógico | tracking, nieve, sangrado; tocar la imagen hace perder la sincronía (la imagen rueda) |
 | FX-50 | ORDEN | Glitch digital | pixel sorting real, calculado en la GPU con un compute shader |

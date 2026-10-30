@@ -180,6 +180,34 @@ export interface EngineStats {
 
 const DEPTH_FORMAT: GPUTextureFormat = 'depth24plus';
 
+// Camera history for sampleCamAgo (BARRIDO's time machine): HISTORY_LAYERS
+// frames at HISTORY_RATE per second (~2.1 s), long side HISTORY_SIZE px,
+// shared by every stage. Stored raw; the cover fit is applied when reading.
+const HISTORY_LAYERS = 64;
+const HISTORY_RATE = 30;
+const HISTORY_SIZE = 480;
+
+const HISTORY_WGSL = /* wgsl */ `
+@group(0) @binding(0) var samp: sampler;
+@group(0) @binding(1) var src: texture_2d<f32>;
+
+struct VSOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
+
+@vertex
+fn vs(@builtin(vertex_index) i: u32) -> VSOut {
+  let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
+  var o: VSOut;
+  o.pos = vec4f(p * 2.0 - 1.0, 0.0, 1.0);
+  o.uv = vec2f(p.x, 1.0 - p.y);
+  return o;
+}
+
+@fragment
+fn fs(in: VSOut) -> @location(0) vec4f {
+  return textureSampleLevel(src, samp, in.uv, 0.0);
+}
+`;
+
 /** The house look, shared by every surface (DESIGN.md, Revelado). */
 const HOUSE = { ramp: 0.7, levels: 12, dither: 2 };
 const STAMP_MAX = 32;
@@ -209,7 +237,7 @@ class Stage {
   lastTime = 0;
 
   private globals: GPUBuffer;
-  private globalsData = new Float32Array(8);
+  private globalsData = new Float32Array(12);
   private params: GPUBuffer;
   private paramsData = new Float32Array(MAX_PARAMS);
   private paramsDirty = true;
@@ -233,7 +261,7 @@ class Stage {
     this.canvas = canvas;
     this.context = canvas.getContext('webgpu') as GPUCanvasContext;
     this.context.configure({ device: d, format: e.format, alphaMode: 'opaque' });
-    this.globals = d.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.globals = d.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.params = d.createBuffer({ size: MAX_PARAMS * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.presentUniform = d.createBuffer({ size: PRESENT_SIZE, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.resize(canvas.width, canvas.height);
@@ -313,6 +341,10 @@ class Stage {
     const g = this.globalsData;
     g[0] = time;
     g[1] = dt;
+    g[8] = this.e.histHead;
+    g[9] = this.e.histFilled;
+    g[10] = HISTORY_RATE;
+    g[11] = HISTORY_LAYERS;
     d.queue.writeBuffer(this.globals, 0, g);
     if (this.paramsDirty) {
       d.queue.writeBuffer(this.params, 0, this.paramsData);
@@ -391,6 +423,7 @@ class Stage {
           { binding: 2, resource: this.e.sampler },
           { binding: 3, resource: this.e.cam.createView() },
           { binding: 8, resource: this.e.glyphs.createView() },
+          { binding: 9, resource: this.e.history.createView({ dimension: '2d-array' }) },
           // reads always see the previous frame: the texture not written this frame
           ...OUTPUTS.map((_, i) => ({ binding: 4 + i, resource: this.outputs[i][parity ^ 1].createView() })),
         ],
@@ -486,6 +519,13 @@ export class Engine {
 
   cam: GPUTexture;
   camSize: [number, number] = [0, 0];
+  /** Past camera frames (see HISTORY_LAYERS); a ring, newest at histHead. */
+  history: GPUTexture;
+  histHead = 0;
+  histFilled = 0;
+  private histTime = -Infinity;
+  private historyPipeline: GPURenderPipeline;
+  private historyGroup: GPUBindGroup | null = null;
   mirror = false;
   zoom = 1;
   /** Revelado mode, shared by every stage: 0 ÁCIDO, 1 MORADO. */
@@ -525,6 +565,7 @@ export class Engine {
         { binding: 1, visibility: both, buffer: { type: 'uniform' } },
         { binding: 2, visibility: both, sampler: { type: 'filtering' } },
         tex(3), tex(4), tex(5), tex(6), tex(7), tex(8),
+        { binding: 9, visibility: both, texture: { sampleType: 'float', viewDimension: '2d-array' } },
       ],
     });
     this.inputLayout = device.createBindGroupLayout({
@@ -545,12 +586,20 @@ export class Engine {
     // fills T0…T3 slots a pass doesn't use
     this.dummy = device.createTexture({ size: [1, 1], format: BUFFER_FORMAT, usage: GPUTextureUsage.TEXTURE_BINDING });
     this.cam = this.makeCamTexture(16, 16);
+    this.history = this.makeHistory(16, 16);
 
     const presentModule = device.createShaderModule({ code: PRESENT_WGSL });
     this.presentPipeline = device.createRenderPipeline({
       layout: 'auto',
       vertex: { module: presentModule, entryPoint: 'vs' },
       fragment: { module: presentModule, entryPoint: 'fs', targets: [{ format: this.format }] },
+    });
+
+    const historyModule = device.createShaderModule({ code: HISTORY_WGSL });
+    this.historyPipeline = device.createRenderPipeline({
+      layout: 'auto',
+      vertex: { module: historyModule, entryPoint: 'vs' },
+      fragment: { module: historyModule, entryPoint: 'fs', targets: [{ format: 'rgba8unorm' }] },
     });
 
     const testModule = device.createShaderModule({ code: TESTCARD_WGSL });
@@ -685,6 +734,11 @@ export class Engine {
   render(time: number, dt: number) {
     if (!this.main.effect) return;
     const enc = this.device.createCommandEncoder();
+    if (time - this.histTime >= 1 / HISTORY_RATE) {
+      // keep the nominal rate; after a stall, restart from now
+      this.histTime = time - this.histTime > 0.25 ? time : this.histTime + 1 / HISTORY_RATE;
+      this.storeHistory(enc);
+    }
     const q = this.query;
     this.main.encode(enc, time, dt, q?.set ?? null);
 
@@ -745,7 +799,48 @@ export class Engine {
   private replaceCam(w: number, h: number) {
     this.cam.destroy();
     this.cam = this.makeCamTexture(w, h);
+    this.history.destroy();
+    this.history = this.makeHistory(w, h);
     this.forEachStage((s) => s.rebuildBindGroups());
+  }
+
+  /** Copies the camera, scaled down, into the next history layer. */
+  private storeHistory(enc: GPUCommandEncoder) {
+    this.historyGroup ??= this.device.createBindGroup({
+      layout: this.historyPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: this.sampler },
+        { binding: 1, resource: this.cam.createView() },
+      ],
+    });
+    this.histHead = (this.histHead + 1) % HISTORY_LAYERS;
+    this.histFilled = Math.min(this.histFilled + 1, HISTORY_LAYERS);
+    const pass = enc.beginRenderPass({
+      colorAttachments: [
+        {
+          view: this.history.createView({ dimension: '2d', baseArrayLayer: this.histHead, arrayLayerCount: 1 }),
+          loadOp: 'clear',
+          storeOp: 'store',
+          clearValue: [0, 0, 0, 1],
+        },
+      ],
+    });
+    pass.setPipeline(this.historyPipeline);
+    pass.setBindGroup(0, this.historyGroup);
+    pass.draw(3);
+    pass.end();
+  }
+
+  /** History textures follow the camera's aspect; a new camera starts with no past. */
+  private makeHistory(w: number, h: number) {
+    const k = HISTORY_SIZE / Math.max(w, h, 1);
+    this.historyGroup = null;
+    this.histFilled = 0;
+    return this.device.createTexture({
+      size: [Math.max(2, Math.round(w * k)), Math.max(2, Math.round(h * k)), HISTORY_LAYERS],
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT,
+    });
   }
 
   private makeCamTexture(w: number, h: number) {
