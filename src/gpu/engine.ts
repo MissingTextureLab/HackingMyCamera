@@ -10,6 +10,7 @@
 import { compileEffect, MAX_PARAMS, MAX_PASS_INPUTS, type CompiledEffect } from '../graph/compile';
 import type { EffectGraph } from '../graph/types';
 import { OUTPUTS } from '../graph/types';
+import { buildGlyphAtlas } from './glyphs';
 
 const BUFFER_FORMAT: GPUTextureFormat = 'rgba16float';
 
@@ -106,6 +107,9 @@ interface LoadedEffect {
   depths: Map<string, GPUTexture>;
   /** group(1) per pass: its T0…T3 inputs. */
   inputGroups: GPUBindGroup[];
+  /** Per pass: the compute pipeline and bind group of processor passes, null otherwise. */
+  computePipelines: (GPUComputePipeline | null)[];
+  computeGroups: (GPUBindGroup | null)[];
 }
 
 /** One surface running one effect: the viewfinder or a thumbnail. */
@@ -217,6 +221,14 @@ class Stage {
     const parity = this.frame & 1;
     eff.compiled.passes.forEach((p, i) => {
       const target = p.target.kind === 'output' ? this.outputs[OUTPUTS.indexOf(p.target.id)][parity] : eff.temps.get(p.target.id)!;
+      if (p.compute) {
+        const cp = enc.beginComputePass();
+        cp.setPipeline(eff.computePipelines[i]!);
+        cp.setBindGroup(0, eff.computeGroups[i]!);
+        cp.dispatchWorkgroups(target.width);
+        cp.end();
+        return;
+      }
       const depth = p.target.kind === 'temp' ? eff.depths.get(p.target.id) : undefined;
       const pass = enc.beginRenderPass({
         // 3D scenes clear to the darkest Citrink colour; 2D passes cover every pixel anyway
@@ -267,6 +279,7 @@ class Stage {
           { binding: 1, resource: { buffer: this.params } },
           { binding: 2, resource: this.e.sampler },
           { binding: 3, resource: this.e.cam.createView() },
+          { binding: 8, resource: this.e.glyphs.createView() },
           // reads always see the previous frame: the texture not written this frame
           ...OUTPUTS.map((_, i) => ({ binding: 4 + i, resource: this.outputs[i][parity ^ 1].createView() })),
         ],
@@ -295,7 +308,7 @@ class Stage {
         this.e.device.createTexture({
           size,
           format: BUFFER_FORMAT,
-          usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+          usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | (t.storage ? GPUTextureUsage.STORAGE_BINDING : 0),
         }),
       );
       if (t.depth) {
@@ -310,6 +323,20 @@ class Stage {
           resource: (p.inputs[i] ? eff.temps.get(p.inputs[i])! : this.e.dummy).createView(),
         })),
       }),
+    );
+    eff.computeGroups = eff.compiled.passes.map((p) =>
+      p.compute && p.target.kind === 'temp'
+        ? this.e.device.createBindGroup({
+            layout: this.e.computeLayout,
+            entries: [
+              { binding: 0, resource: { buffer: this.globals } },
+              { binding: 1, resource: { buffer: this.params } },
+              { binding: 2, resource: eff.temps.get(p.inputs[0])!.createView() },
+              { binding: 3, resource: eff.temps.get(p.target.id)!.createView() },
+              { binding: 4, resource: this.e.sampler },
+            ],
+          })
+        : null,
     );
   }
 
@@ -338,6 +365,8 @@ export class Engine {
   readonly layout: GPUBindGroupLayout;
   readonly inputLayout: GPUBindGroupLayout;
   readonly dummy: GPUTexture;
+  /** LETRA's glyph atlas (see glyphs.ts). */
+  readonly glyphs: GPUTexture;
   readonly presentPipeline: GPURenderPipeline;
   readonly main: Stage;
 
@@ -347,6 +376,8 @@ export class Engine {
   zoom = 1;
 
   private pipelineLayout: GPUPipelineLayout;
+  readonly computeLayout: GPUBindGroupLayout;
+  private computePipelineLayout: GPUPipelineLayout;
   private pipelineCache = new Map<string, Promise<GPURenderPipeline>>();
   private thumbs = new Map<string, Stage>();
   private thumbOrder: string[] = [];
@@ -362,7 +393,8 @@ export class Engine {
 
   onError: (message: string) => void = () => {};
 
-  private constructor(device: GPUDevice, canvas: OffscreenCanvas) {
+  private constructor(device: GPUDevice, canvas: OffscreenCanvas, glyphs: GPUTexture) {
+    this.glyphs = glyphs;
     this.device = device;
     this.format = navigator.gpu.getPreferredCanvasFormat();
     this.sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
@@ -375,13 +407,24 @@ export class Engine {
         { binding: 0, visibility: both, buffer: { type: 'uniform' } },
         { binding: 1, visibility: both, buffer: { type: 'uniform' } },
         { binding: 2, visibility: both, sampler: { type: 'filtering' } },
-        tex(3), tex(4), tex(5), tex(6), tex(7),
+        tex(3), tex(4), tex(5), tex(6), tex(7), tex(8),
       ],
     });
     this.inputLayout = device.createBindGroupLayout({
       entries: Array.from({ length: MAX_PASS_INPUTS }, (_, i) => tex(i)),
     });
     this.pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [this.layout, this.inputLayout] });
+    const cs = GPUShaderStage.COMPUTE;
+    this.computeLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: cs, buffer: { type: 'uniform' } },
+        { binding: 1, visibility: cs, buffer: { type: 'uniform' } },
+        { binding: 2, visibility: cs, texture: { sampleType: 'float' } },
+        { binding: 3, visibility: cs, storageTexture: { access: 'write-only', format: BUFFER_FORMAT } },
+        { binding: 4, visibility: cs, sampler: { type: 'filtering' } },
+      ],
+    });
+    this.computePipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [this.computeLayout] });
     // fills T0…T3 slots a pass doesn't use
     this.dummy = device.createTexture({ size: [1, 1], format: BUFFER_FORMAT, usage: GPUTextureUsage.TEXTURE_BINDING });
     this.cam = this.makeCamTexture(16, 16);
@@ -424,10 +467,23 @@ export class Engine {
     const requiredFeatures: GPUFeatureName[] = [];
     if (adapter.features.has('timestamp-query')) requiredFeatures.push('timestamp-query');
     const device = await adapter.requestDevice({ requiredFeatures });
-    const engine = new Engine(device, canvas);
+    const engine = new Engine(device, canvas, await Engine.glyphTexture(device));
     device.lost.then((info) => engine.onError(`GPU PERDIDA: ${info.message}`));
     device.addEventListener('uncapturederror', (e) => engine.onError((e as GPUUncapturedErrorEvent).error.message));
     return engine;
+  }
+
+  private static async glyphTexture(device: GPUDevice): Promise<GPUTexture> {
+    const usage = GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT;
+    try {
+      const atlas = await buildGlyphAtlas();
+      const tex = device.createTexture({ size: [atlas.width, atlas.height], format: 'rgba8unorm', usage });
+      device.queue.copyExternalImageToTexture({ source: atlas }, { texture: tex }, [atlas.width, atlas.height]);
+      return tex;
+    } catch {
+      // no atlas: LETRA draws blank cells instead of failing the whole engine
+      return device.createTexture({ size: [1, 1], format: 'rgba8unorm', usage });
+    }
   }
 
   get canvas() {
@@ -548,10 +604,15 @@ export class Engine {
     const compiled = compileEffect(graph);
     const pipelines = await Promise.all(
       compiled.passes.map((p) =>
-        p.draws ? Promise.all(p.draws.map((d) => this.pipeline(p.wgsl, d.vs, d.fs, true))) : Promise.all([this.pipeline(p.wgsl)]),
+        p.compute
+          ? Promise.resolve([])
+          : p.draws
+            ? Promise.all(p.draws.map((d) => this.pipeline(p.wgsl, d.vs, d.fs, true)))
+            : Promise.all([this.pipeline(p.wgsl)]),
       ),
     );
-    return { graph, compiled, pipelines, temps: new Map(), depths: new Map(), inputGroups: [] };
+    const computePipelines = await Promise.all(compiled.passes.map((p) => (p.compute ? this.computePipeline(p.wgsl) : null)));
+    return { graph, compiled, pipelines, temps: new Map(), depths: new Map(), inputGroups: [], computePipelines, computeGroups: [] };
   }
 
   private forEachStage(fn: (s: Stage) => void) {
@@ -593,6 +654,20 @@ export class Engine {
       this.modules.set(wgsl, m);
     }
     return m;
+  }
+
+  private computeCache = new Map<string, Promise<GPUComputePipeline>>();
+
+  private computePipeline(wgsl: string): Promise<GPUComputePipeline> {
+    let p = this.computeCache.get(wgsl);
+    if (!p) {
+      p = this.module(wgsl).then((module) =>
+        this.device.createComputePipelineAsync({ layout: this.computePipelineLayout, compute: { module, entryPoint: 'main' } }),
+      );
+      p.catch(() => this.computeCache.delete(wgsl));
+      this.computeCache.set(wgsl, p);
+    }
+    return p;
   }
 
   /** Pipelines are cached by source and entry points; `depth` for 3D scenes. */

@@ -1,141 +1,151 @@
-// The gallery: ten effects, each about one visual question. Names follow
+// The gallery: thirteen effects, each about one visual question. Names follow
 // DESIGN.md (catalogue code + one Spanish word).
 // Macros: A = drag x, B = drag y, C = two-finger twist.
 // Mods move params on their own (LFO) or with the finger (touch).
 
-import { cam, effect, lfo, motion, noise, o, osc, touch } from '../dsl';
+import { cam, effect, event, lfo, noise, o, touch } from '../dsl';
 import type { EffectGraph } from '../graph/types';
 
-// Optics: what a cheap lens does to light. Barrel, chromatic fringes, vignette.
+// Optics: a cinema lens. Bright spots bleed long horizontal streaks; the
+// glass bends and fringes a little at the edges.
 const lente = effect({ id: 'lente', code: '01', name: 'Lente' }, (m) => {
-  const l = cam().lens(2.8, 0.5, 0.65);
-  m.macro('ABERRACIÓN', l, 'aberration', 0, 6);
-  m.macro('CURVA', l, 'barrel', -0.5, 1.2);
-  m.macro('VIÑETA', l, 'vignette', 0, 1);
-  l.out(0);
+  const f = cam().lens(1.2, 0.18, 0.45).flare(0.85, 400, 1);
+  m.macro('DESTELLO', f, 'intensity', 0, 3);
+  m.macro('LARGO', f, 'reach', 60, 1200);
+  m.macro('UMBRAL', f, 'threshold', 0.95, 0.4);
+  f.out(0);
 });
 
-// Print: two-ink halftone, out of register.
+// Print: two-ink halftone, out of register; shooting knocks the plates apart.
 const trama = effect({ id: 'trama', code: '07', name: 'Trama' }, (m) => {
-  const r = cam().contrast(1.15).riso(3, 7, 1.1);
+  const r = cam().contrast(1.15).riso(3, 7, 1.1, 0, 0);
   m.macro('REGISTRO', r, 'offset', 0, 14);
   m.macro('PUNTO', r, 'cell', 3, 18);
-  m.macro('TINTA', r, 'gain', 0.6, 1.8);
+  m.macro('VARIANTE', r, 'variant', 0, 11.99);
+  m.mod(r, 'jolt', event('shot'), 0, 18);
   r.out(0);
 });
 
-// Symmetry: a mandala that turns slowly by itself.
+// Symmetry: two mirrors facing each other. Each reflection sits inside the
+// last, mirrored, with an acid frame.
 const espejo = effect({ id: 'espejo', code: '12', name: 'Espejo' }, (m) => {
-  const rot = cam().rotate(0);
-  const k = rot.kaleid(6);
-  const w = k.modulateRotate(osc(2, 0.04), 0.3);
-  const c = w.citrink(0.8, 0.5, 2, 2);
-  m.macro('LADOS', k, 'sides', 2, 12);
-  m.macro('GIRO', w, 'multiple', 0, 2);
-  m.macro('CICLO', c, 'cycle', 0, 7);
-  m.mod(rot, 'angle', lfo('sine', 0.03), -0.6, 0.6);
-  c.out(0);
+  const a = cam().abyss(o(0), 0.78, 0, 0);
+  m.macro('PROFUNDIDAD', a, 'scale', 0.55, 0.92);
+  m.macro('GIRO', a, 'angle', -0.5, 0.5);
+  m.macro('EJE', a, 'shift', -0.25, 0.25);
+  a.out(0);
 });
 
-// Light: only the bright parts bleed, and the glow breathes.
+// Light: painting with light. Only what is bright leaves a trail, like a long
+// exposure; move a torch, or the phone, and you draw.
 const halo = effect({ id: 'halo', code: '14', name: 'Halo' }, (m) => {
-  const b = cam().contrast(1.15).bloom(0.55, 1.4, 10);
-  const c = b.citrink(0.35);
-  m.macro('UMBRAL', b, 'threshold', 0.9, 0.2);
-  m.macro('BRILLO', b, 'intensity', 0.2, 3);
-  m.macro('COLOR', c, 'amount', 0, 1);
-  m.mod(b, 'radius', lfo('tri', 0.2), 6, 14, { smooth: 0.9 });
-  c.out(0);
+  const mask = cam().thresh(0.82, 0.06);
+  const lights = cam().mult(mask, 1);
+  const fade = o(1).gain(0.96);
+  const trails = fade.lighten(lights, 1);
+  trails.out(1);
+  const glow = trails.bloom(0.3, 1.2, 10);
+  m.macro('ESTELA', fade, 'amount', 0.85, 0.995);
+  m.macro('UMBRAL', mask, 'threshold', 0.95, 0.5);
+  m.macro('BRILLO', glow, 'intensity', 0, 3);
+  cam().gain(0.7).add(glow, 1).out(0);
 });
 
-// Memory: TouchDesigner feedback. The last frame flows over a noise relief and
-// slowly absorbs the camera.
+// Memory: only what moves is remembered. Still parts stay sharp; moving
+// things leave coloured ghosts that flow over a noise relief and fade.
+// "Moving" = differs from a background that slowly adapts (o1).
 const muda = effect({ id: 'muda', code: '19', name: 'Muda' }, (m) => {
+  o(1).blend(cam(), 0.06).out(1);
+  const moving = cam().diff(o(1)).thresh(0.1, 0.05);
+  const ink = cam().citrink(1, 0, 3).mult(moving, 1);
   const relief = noise(2, 0.15);
-  const flow = o(0).displace(relief, 6);
-  const mix = flow.blend(cam().citrink(1, 0, 3), 0.1);
-  m.macro('MEMORIA', mix, 'amount', 0.4, 0.02);
+  const flow = o(2).displace(relief, 6);
+  const fade = flow.gain(0.96);
+  const ghosts = fade.lighten(ink, 1);
+  ghosts.out(2);
+  m.macro('MEMORIA', fade, 'amount', 0.8, 0.99);
   m.macro('FLUJO', flow, 'amount', 0, 20);
-  m.macro('ESCALA', relief, 'scale', 0.5, 6);
+  m.macro('SENSIBILIDAD', moving, 'threshold', 0.3, 0.02);
   m.mod(relief, 'speed', lfo('sine', 0.05), 0.05, 0.4);
-  mix.out(0);
+  cam().lighten(ghosts, 1).out(0);
 });
 
-// Time: slit-scan. Each row above the line is an earlier moment.
+// Time: slit-scan. Each row (or column, or ring) is an earlier moment.
 const barrido = effect({ id: 'barrido', code: '22', name: 'Barrido' }, (m) => {
-  const s = o(0).slit(cam(), 2, 0.72);
+  const s = o(0).slit(cam(), 2, 0.72, 0);
   m.macro('VELOCIDAD', s, 'speed', 0.5, 10);
   m.macro('LÍNEA', s, 'line', 0.2, 0.95);
+  m.macro('FORMA', s, 'shape', 0, 2.99);
   s.out(0);
 });
 
-// Type: the image written in characters.
+// Type: the image written in Martian Mono, the identity's own face.
 const letra = effect({ id: 'letra', code: '31', name: 'Letra' }, (m) => {
-  const a = cam().ascii(10, 1.3);
-  m.macro('CUERPO', a, 'cell', 6, 28);
+  const a = cam().ascii(12, 1.3);
+  m.macro('CUERPO', a, 'cell', 6, 32);
   m.macro('CONTRASTE', a, 'contrast', 0.6, 2.6);
   a.out(0);
 });
 
-// Tessellation: stained glass, the cells drifting.
+// Tessellation: stained glass, fine where the image is busy.
 const vitral = effect({ id: 'vitral', code: '36', name: 'Vitral' }, (m) => {
-  const v = cam().vitral(14, 0.08, 0.6);
-  m.macro('TESELAS', v, 'scale', 4, 40);
+  const v = cam().vitral(10, 0.08, 0.5, 0.6);
+  m.macro('TESELAS', v, 'scale', 4, 30);
   m.macro('PLOMO', v, 'border', 0.01, 0.3);
-  m.macro('DERIVA', v, 'jitter', 0, 1);
+  m.macro('DETALLE', v, 'detail', 0, 1);
   v.out(0);
 });
 
-// Signal: analogue video. Touching the image interferes with the signal.
+// Signal: analogue video. Touch the image and the sync goes.
 const senal = effect({ id: 'senal', code: '44', name: 'Señal' }, (m) => {
-  const v = cam().vhs(0.5, 0.6, 1.2);
+  const v = cam().vhs(0.5, 0.6, 1.2, 0);
   m.macro('TRACKING', v, 'tracking', 0, 1.5);
   m.macro('SANGRADO', v, 'bleed', 0, 4);
-  m.mod(v, 'noise', touch('down'), 0.4, 1.6, { smooth: 0.85 });
+  m.macro('RUIDO', v, 'noise', 0, 1.5);
+  m.mod(v, 'desync', touch('down'), 0, 1, { smooth: 0.85 });
   v.out(0);
 });
 
-// Glitch: pixel sorting, bright runs melting along an angle.
+// Glitch: real pixel sorting. Each column's runs of mid-to-bright pixels are
+// sorted by brightness, on the GPU.
 const orden = effect({ id: 'orden', code: '50', name: 'Orden' }, (m) => {
-  const s = cam().sort(0.55, 220, 0);
-  m.macro('UMBRAL', s, 'threshold', 0.95, 0.2);
-  m.macro('ALCANCE', s, 'reach', 20, 700);
-  m.macro('ÁNGULO', s, 'angle', -1.57, 1.57);
+  const s = cam().sort(0.35, 1, 0);
+  m.macro('UMBRAL', s, 'low', 0.9, 0.05);
+  m.macro('TECHO', s, 'high', 0.4, 1);
+  m.macro('SENTIDO', s, 'dir', 0, 1);
   s.out(0);
 });
 
-/* ---------- 3D: tilting the phone orbits the camera, like looking through a window ---------- */
+/* ---------- 3D: a fixed, composed framing with a slow sway so the volume reads ---------- */
 
 // Relief: the image as terrain, drawn as ridge lines with hidden lines removed.
+// Low and frontal, like the Unknown Pleasures cover.
 const relieve = effect({ id: 'relieve', code: '60', name: 'Relieve' }, (m) => {
-  const r = cam().blur(3).relief(0.5, 0, 0.55, 3.2, 1.5);
+  const r = cam().blur(3).relief(0.5, 0, 0.3, 3, 1.6, 60);
   m.macro('ALTURA', r, 'height', 0, 1.2);
-  m.macro('DISTANCIA', r, 'dist', 1.8, 6);
+  m.macro('LÍNEAS', r, 'rows', 12, 140);
   m.macro('TRAZO', r, 'thickness', 0.5, 5);
-  m.mod(r, 'yaw', motion('x'), -0.8, 0.8, { smooth: 0.85 });
-  m.mod(r, 'pitch', motion('y'), 0.15, 1.1, { smooth: 0.85 });
+  m.mod(r, 'yaw', lfo('sine', 0.03), -0.08, 0.08);
   r.out(0);
 });
 
-// Volume: the camera as a cloud of points, pushed in depth by brightness.
+// Volume: the camera as a cloud of points, seen three-quarters, drifting.
 const nube = effect({ id: 'nube', code: '63', name: 'Nube' }, (m) => {
-  const c = cam().cloud(0.8, 3, 0, 0, 2.6, 0);
+  const c = cam().cloud(0.9, 3, 0.5, 0.18, 2.7, 0.05);
   m.macro('PROFUNDIDAD', c, 'depth', 0, 2.5);
   m.macro('TAMAÑO', c, 'size', 1, 10);
-  m.macro('DISPERSIÓN', c, 'scatter', 0, 0.6);
-  m.mod(c, 'yaw', motion('x'), -0.9, 0.9, { smooth: 0.85 });
-  m.mod(c, 'pitch', motion('y'), -0.6, 0.6, { smooth: 0.85 });
+  m.macro('DERIVA', c, 'drift', 0, 0.3);
+  m.mod(c, 'yaw', lfo('sine', 0.025), 0.42, 0.58);
   c.out(0);
 });
 
-// Mass: a city of blocks, as tall as the image is bright.
+// Mass: a city of blocks, as tall as the image is bright. Isometric.
 const ciudad = effect({ id: 'ciudad', code: '66', name: 'Ciudad' }, (m) => {
-  const c = cam().blur(6).city(0.8, 0, 0.6, 3.4, 0.15);
+  const c = cam().blur(6).city(0.8, 0.785, 0.6155, 1.7, 0.15);
   m.macro('ALTURA', c, 'height', 0, 2);
-  m.macro('DISTANCIA', c, 'dist', 2, 7);
+  m.macro('ZOOM', c, 'zoom', 3, 0.8);
   m.macro('CALLES', c, 'gap', 0, 0.6);
-  m.mod(c, 'yaw', motion('x'), -0.9, 0.9, { smooth: 0.85 });
-  m.mod(c, 'pitch', motion('y'), 0.2, 1.2, { smooth: 0.85 });
+  m.mod(c, 'yaw', lfo('sine', 0.02), 0.72, 0.85);
   c.out(0);
 });
 

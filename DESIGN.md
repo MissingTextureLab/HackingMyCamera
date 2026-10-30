@@ -94,8 +94,7 @@ La imagen es la superficie de control. Ningún gesto abre menús.
 | Arrastrar con un dedo | Macro A (horizontal) y macro B (vertical), posición absoluta | `A / ETIQUETA` y `B / ETIQUETA` en Doto mientras dura |
 | Pellizcar | Zoom de 1× a 8×: óptico mientras el móvil lo permita, digital a partir de ahí | `ZOOM 2.4×` |
 | Girar con dos dedos | Macro C, relativa al valor de partida | `C / ETIQUETA` junto al zoom |
-| Inclinar el móvil | En los efectos 3D, orbita la cámara: mirar por una ventana | — |
-| Doble toque | Restablece macros y zoom, y toma la postura actual del móvil como "recto" | — |
+| Doble toque | Restablece macros y zoom | — |
 | Deslizar la tira de efectos | Recorre la galería | — |
 | Tocar / mantener el obturador | Foto / grabar mientras se mantiene | Sello `GUARDADO` / `REC` |
 | Triple toque en la etiqueta de cámara | HUD de depuración | fps, ms de GPU, resolución, pases |
@@ -115,6 +114,7 @@ Las únicas rupturas permitidas, cada una ligada a un evento:
 | Foto | Las capas `flash` y `grass` de las etiquetas se desplazan `misreg` (3 px) en direcciones opuestas y vuelven; entra el sello `GUARDADO` | `hold` |
 | Empezar a grabar | Sello `REC` en `flash`, que se queda fijo arriba mientras graba | mientras dure |
 | Cambio de efecto | Un fotograma de fotocopia (la imagen a 1 bit, umbral duro) y el nombre del efecto en Rubik Glitch | `xerox-frame` + `hold` |
+| Foto o empezar a grabar, en efectos que lo usan | La propia imagen se sabotea: en TRAMA las planchas saltan de registro (señal `event: shot`) | 0,6 s |
 | Error o señal perdida | Pantalla de error en Rubik Glitch Pop sobre `flash`, torcida `stamp-angle` | hasta resolverse |
 
 El sello es el único elemento que puede girar fuera del ángulo recto, y solo `stamp-angle`. Lo dibuja el mismo motor que los efectos, así que hereda el efecto activo.
@@ -125,21 +125,21 @@ Cada efecto trata una sola cuestión de lo visual. Si dos efectos responden a la
 
 | Código | Nombre | Pregunta | Herramienta |
 |---|---|---|---|
-| FX-01 | LENTE | Óptica: qué le hace una lente barata a la luz | barril, aberración cromática, viñeta |
-| FX-07 | TRAMA | Imprenta: la imagen como puntos de tinta | semitono a dos tintas, segunda plancha desregistrada |
-| FX-12 | ESPEJO | Simetría | caleidoscopio que gira solo |
-| FX-14 | HALO | Luz | bloom a media resolución que respira |
-| FX-19 | MUDA | Memoria | feedback que fluye sobre un relieve de ruido (TouchDesigner) |
-| FX-22 | BARRIDO | Tiempo | slit-scan: cada fila es un instante anterior |
-| FX-31 | LETRA | Tipografía | la imagen escrita en caracteres |
-| FX-36 | VITRAL | Teselación | celdas de Voronoi con plomo |
-| FX-44 | SEÑAL | Vídeo analógico | tracking, nieve, sangrado de color, líneas; tocar la imagen mete interferencia |
-| FX-50 | ORDEN | Glitch digital | pixel sorting por umbral y ángulo |
-| FX-60 | RELIEVE | Relieve | la imagen como terreno de líneas de cresta, con las líneas ocultas eliminadas |
-| FX-63 | NUBE | Volumen | nube de puntos con los colores de la cámara, profundidad por brillo |
-| FX-66 | CIUDAD | Masa | bloques tan altos como brillante es la imagen, coloreados por altura |
+| FX-01 | LENTE | Óptica de cine | destellos anamórficos: las luces fuertes dejan estelas horizontales teñidas; algo de barril y aberración |
+| FX-07 | TRAMA | Imprenta | semitono a dos tintas desregistradas; 12 variantes (4 pares de tintas × puntos, líneas, cruz); al disparar, las planchas saltan |
+| FX-12 | ESPEJO | Simetría | espejo en abismo: reflejos anidados y espejados, con marco `acid` |
+| FX-14 | HALO | Luz | pintar con luz: solo lo brillante deja estela, como una exposición larga |
+| FX-19 | MUDA | Memoria | solo lo que se mueve deja fantasmas de color, que fluyen sobre un relieve de ruido; lo quieto queda nítido |
+| FX-22 | BARRIDO | Tiempo | slit-scan con rendija horizontal, vertical o radial |
+| FX-31 | LETRA | Tipografía | la imagen escrita con caracteres reales de Martian Mono, ordenados por densidad |
+| FX-36 | VITRAL | Teselación | vitral cuyas celdas se subdividen donde la imagen tiene detalle |
+| FX-44 | SEÑAL | Vídeo analógico | tracking, nieve, sangrado; tocar la imagen hace perder la sincronía (la imagen rueda) |
+| FX-50 | ORDEN | Glitch digital | pixel sorting real, calculado en la GPU con un compute shader |
+| FX-60 | RELIEVE | Relieve | terreno de líneas de cresta, encuadre frontal y bajo; número de líneas como gesto |
+| FX-63 | NUBE | Volumen | nube de puntos a tres cuartos; puntos mayores cuanto más brillantes, con deriva lenta |
+| FX-66 | CIUDAD | Masa | bloques en vista isométrica, tan altos como brillante es la imagen |
 
-Los tres efectos 3D (60–66) se miran inclinando el móvil.
+Las escenas 3D (60–66) tienen un encuadre fijo y compuesto, con un balanceo lento para que se lea el volumen. Ya no usan el giroscopio.
 
 Cada efecto expone hasta tres macros con nombre propio (A, B, C; ver *Gestos*).
 

@@ -15,6 +15,7 @@
 //   render3d      draws geometry with depth into its own texture; reads its
 //                 input image as T0 (also in the vertex stage). Params are
 //                 read through generated accessors p_<name>(). See SCENE_PRELUDE.
+//   processor     a compute shader writing its own texture (OpDef.compute).
 //
 // Module-scope names available to snippets: G (globals: time, dt, res, camFit),
 // FC (fragment coordinate in pixels), PI, TAU, hash3, vnoise, luma,
@@ -22,7 +23,7 @@
 //
 // No code here is taken from hydra-synth (AGPL); only op names and ideas.
 
-export type OpKind = 'source' | 'coord' | 'color' | 'combine' | 'combineCoord' | 'texture' | 'filter' | 'render3d';
+export type OpKind = 'source' | 'coord' | 'color' | 'combine' | 'combineCoord' | 'texture' | 'filter' | 'render3d' | 'processor';
 
 /** One draw call of a 3D scene: entry points and how many vertices (no vertex buffers). */
 export interface SceneDraw {
@@ -57,6 +58,12 @@ export interface OpDef {
   passes?: FilterPass[];
   /** render3d only: WGSL with the entry points, and the draws, in order */
   scene?: { wgsl: string; draws: SceneDraw[] };
+  /**
+   * processor only: a compute shader with entry point `main`, dispatched with
+   * one workgroup per output column. Reads its input as T0 (any size, through
+   * `samp`), writes OUT, params via p_<name>(). See COMPUTE_HEADER.
+   */
+  compute?: { wgsl: string; scale?: number };
 }
 
 /** Number of inputs a node of this op must have. */
@@ -71,6 +78,7 @@ export function arity(def: OpDef): number {
     case 'filter':
       return def.inputs ?? 1;
     case 'render3d':
+    case 'processor':
       return 1;
     default:
       return 1;
@@ -301,6 +309,16 @@ fn op_brightness(c: vec4f, amount: f32) -> vec4f {
 });
 
 def({
+  name: 'gain',
+  kind: 'color',
+  params: [p('amount', 0.9)],
+  wgsl: /* wgsl */ `
+fn op_gain(c: vec4f, amount: f32) -> vec4f {
+  return vec4f(c.rgb * amount, c.a);
+}`,
+});
+
+def({
   name: 'invert',
   kind: 'color',
   params: [p('amount', 1)],
@@ -365,6 +383,16 @@ def({
   wgsl: /* wgsl */ `
 fn op_mult(a: vec4f, b: vec4f, amount: f32) -> vec4f {
   return vec4f(a.rgb * mix(vec3f(1.0), b.rgb, amount), a.a);
+}`,
+});
+
+def({
+  name: 'lighten',
+  kind: 'combine',
+  params: [p('amount', 1)],
+  wgsl: /* wgsl */ `
+fn op_lighten(a: vec4f, b: vec4f, amount: f32) -> vec4f {
+  return vec4f(max(a.rgb, b.rgb * amount), a.a);
 }`,
 });
 
@@ -549,61 +577,183 @@ fn PASS(uv: vec2f, threshold: f32, intensity: f32, radius: f32) -> vec4f {
   ],
 });
 
-// Print: AM halftone in two Citrink inks on white paper. Each plate is a grid of
-// dots at its own screen angle; the second plate is out of register by
-// `offset` pixels, like a risograph.
+// Print: halftone in two Citrink inks on white paper. Each plate is a screen
+// at its own angle; the second plate is out of register by offset + jolt px.
+// variant 0-11 picks the ink pair (variant % 4) and the screen (variant / 4):
+// dots, lines or cross-hatch.
 def({
   name: 'riso',
   kind: 'filter',
-  params: [p('offset', 3), p('cell', 7), p('gain', 1.1)],
+  params: [p('offset', 3), p('cell', 7), p('gain', 1.1), p('variant', 0), p('jolt', 0)],
   passes: [
     {
       inputs: ['in0'],
       wgsl: /* wgsl */ `
-fn plate(pix: vec2f, cell: f32, angle: f32, gain: f32) -> f32 {
+// ink pairs as CITRINK indices: first plate (shadows), second plate
+var<private> INK_A: array<u32, 4> = array<u32, 4>(2u, 3u, 1u, 0u);
+var<private> INK_B: array<u32, 4> = array<u32, 4>(5u, 6u, 4u, 6u);
+
+fn cellInk(local: vec2f, ink: f32, screen: u32) -> f32 {
+  let aa = 0.06;
+  if (screen == 1u) {
+    let half = ink * 0.5;
+    return 1.0 - smoothstep(half - aa, half + aa, abs(local.y));
+  }
+  if (screen == 2u) {
+    let half = ink * 0.32;
+    return 1.0 - smoothstep(half - aa, half + aa, min(abs(local.x), abs(local.y)));
+  }
+  let radius = sqrt(ink) * 0.62;
+  return 1.0 - smoothstep(radius - aa, radius + aa, length(local));
+}
+
+fn plate(pix: vec2f, cell: f32, angle: f32, gain: f32, screen: u32) -> f32 {
   let res = vec2f(textureDimensions(T0));
   let c = cos(angle);
   let s = sin(angle);
   let r = vec2f(c * pix.x + s * pix.y, -s * pix.x + c * pix.y) / cell;
-  let id = floor(r) + 0.5;
-  let cp = id * cell;
+  let cp = (floor(r) + 0.5) * cell;
   let centre = vec2f(c * cp.x - s * cp.y, s * cp.x + c * cp.y);
   let ink = clamp((1.0 - lumaAt(T0, centre / res)) * gain, 0.0, 1.0);
-  let radius = sqrt(ink) * 0.62;
-  return 1.0 - smoothstep(radius - 0.06, radius + 0.06, length(fract(r) - 0.5));
+  return cellInk(fract(r) - 0.5, ink, screen);
 }
 
-fn PASS(uv: vec2f, offset: f32, cell: f32, gain: f32) -> vec4f {
+fn PASS(uv: vec2f, offset: f32, cell: f32, gain: f32, variant: f32, jolt: f32) -> vec4f {
+  let v = u32(clamp(floor(variant), 0.0, 11.0));
+  let pair = v % 4u;
+  let screen = v / 4u;
   let cs = max(cell, 2.0);
-  let a = plate(FC, cs, 0.2618, gain);
-  let b = plate(FC + vec2f(offset, offset * 0.6), cs, 1.309, gain * 0.85);
+  let off = offset + jolt;
+  let a = plate(FC, cs, 0.2618, gain, screen);
+  let b = plate(FC + vec2f(off, off * 0.6), cs, 1.309, gain * 0.85, screen);
   var paper = vec3f(1.0);
-  paper *= mix(vec3f(1.0), CITRINK[2], a);
-  paper *= mix(vec3f(1.0), CITRINK[5], b);
+  paper *= mix(vec3f(1.0), CITRINK[INK_A[pair]], a);
+  paper *= mix(vec3f(1.0), CITRINK[INK_B[pair]], b);
   return vec4f(paper, 1.0);
 }`,
     },
   ],
 });
 
-// Time: slit-scan. Below `line` the live image; above it, history scrolls up
-// `speed` pixels per frame, fed by the live row at the line. in0 = the
-// previous frame (o0), in1 = the camera.
+// Symmetry: facing mirrors. The previous frame, shrunk by `scale`, turned by
+// `angle` and mirrored, sits inside a thin acid frame on top of the live image;
+// feeding back, it nests forever. in0 = the camera, in1 = the previous frame.
 def({
-  name: 'slit',
+  name: 'abyss',
   kind: 'filter',
   inputs: 2,
-  params: [p('speed', 2), p('line', 0.72)],
+  params: [p('scale', 0.78), p('angle', 0), p('shift', 0)],
   passes: [
     {
       inputs: ['in0', 'in1'],
       wgsl: /* wgsl */ `
-fn PASS(uv: vec2f, speed: f32, line: f32) -> vec4f {
-  if (uv.y >= line) {
-    return textureSampleLevel(T1, samp, uv, 0.0);
+fn PASS(uv: vec2f, scale: f32, angle: f32, shift: f32) -> vec4f {
+  let asp = G.res.x / G.res.y;
+  let k = clamp(scale, 0.05, 0.98);
+  var q = uv - vec2f(0.5 + shift, 0.5);
+  q.x *= asp;
+  let c = cos(angle);
+  let s = sin(angle);
+  q = vec2f(c * q.x + s * q.y, -s * q.x + c * q.y) / k;
+  q.x /= asp;
+  let inner = q + 0.5;
+  if (all(inner > vec2f(0.0)) && all(inner < vec2f(1.0))) {
+    let edge = min(min(inner.x, 1.0 - inner.x), min(inner.y, 1.0 - inner.y));
+    if (edge < 0.012 / k) {
+      return vec4f(CITRINK[5], 1.0);
+    }
+    // each reflection is mirrored, like a mirror facing a mirror
+    return textureSampleLevel(T1, samp, vec2f(1.0 - inner.x, inner.y), 0.0);
   }
+  return textureSampleLevel(T0, samp, uv, 0.0);
+}`,
+    },
+  ],
+});
+
+// Time: slit-scan. Past the line the live image; on the other side, history
+// moves away from it `speed` pixels per frame, fed by the live pixels at the
+// line. shape 0: horizontal line (history goes up), 1: vertical (goes left),
+// 2: radial (rings grow outwards from a circle of radius `line`).
+// in0 = the previous frame (o0), in1 = the camera.
+def({
+  name: 'slit',
+  kind: 'filter',
+  inputs: 2,
+  params: [p('speed', 2), p('line', 0.72), p('shape', 0)],
+  passes: [
+    {
+      inputs: ['in0', 'in1'],
+      wgsl: /* wgsl */ `
+fn PASS(uv: vec2f, speed: f32, line: f32, shape: f32) -> vec4f {
   let px = 1.0 / vec2f(textureDimensions(T0));
-  return textureSampleLevel(T0, samp, uv + vec2f(0.0, max(speed, 0.0) * px.y), 0.0);
+  let s = max(speed, 0.0);
+  let mode = u32(clamp(floor(shape), 0.0, 2.0));
+  if (mode == 1u) {
+    if (uv.x >= line) { return textureSampleLevel(T1, samp, uv, 0.0); }
+    return textureSampleLevel(T0, samp, uv + vec2f(s * px.x, 0.0), 0.0);
+  }
+  if (mode == 2u) {
+    let asp = G.res.x / G.res.y;
+    var q = uv - 0.5;
+    q.x *= asp;
+    let d = length(q);
+    if (d <= line * 0.5) { return textureSampleLevel(T1, samp, uv, 0.0); }
+    var back = q - q / max(d, 0.0001) * s * px.y;
+    back.x /= asp;
+    return textureSampleLevel(T0, samp, back + 0.5, 0.0);
+  }
+  if (uv.y >= line) { return textureSampleLevel(T1, samp, uv, 0.0); }
+  return textureSampleLevel(T0, samp, uv + vec2f(0.0, s * px.y), 0.0);
+}`,
+    },
+  ],
+});
+
+// Optics: anamorphic flare. Bright spots bleed long horizontal streaks, tinted
+// with the palette, like a cinema lens. Bright pass and streak at quarter
+// resolution; `reach` is in output pixels.
+def({
+  name: 'flare',
+  kind: 'filter',
+  params: [p('threshold', 0.75), p('reach', 400), p('intensity', 1.4)],
+  passes: [
+    {
+      inputs: ['in0'],
+      scale: 0.25,
+      wgsl: /* wgsl */ `
+fn PASS(uv: vec2f, threshold: f32, reach: f32, intensity: f32) -> vec4f {
+  let c = textureSampleLevel(T0, samp, uv, 0.0);
+  return vec4f(c.rgb * smoothstep(threshold, threshold + 0.1, luma(c.rgb)), 1.0);
+}`,
+    },
+    {
+      inputs: ['p0'],
+      scale: 0.25,
+      wgsl: /* wgsl */ `
+fn PASS(uv: vec2f, threshold: f32, reach: f32, intensity: f32) -> vec4f {
+  let px = 1.0 / vec2f(textureDimensions(T0));
+  // 24 taps each side; one quarter-res texel is 4 output pixels
+  let stepUv = reach / 96.0 * px.x;
+  var acc = textureSampleLevel(T0, samp, uv, 0.0).rgb;
+  var wsum = 1.0;
+  for (var i = 1; i <= 24; i++) {
+    let w = exp(-f32(i) * 0.12);
+    let o = vec2f(stepUv * f32(i), 0.0);
+    acc += (textureSampleLevel(T0, samp, uv + o, 0.0).rgb + textureSampleLevel(T0, samp, uv - o, 0.0).rgb) * w;
+    wsum += 2.0 * w;
+  }
+  return vec4f(acc / wsum * 3.0, 1.0);
+}`,
+    },
+    {
+      inputs: ['in0', 'p1'],
+      wgsl: /* wgsl */ `
+fn PASS(uv: vec2f, threshold: f32, reach: f32, intensity: f32) -> vec4f {
+  let base = textureSampleLevel(T0, samp, uv, 0.0).rgb;
+  let streak = textureSampleLevel(T1, samp, uv, 0.0).rgb;
+  let tint = mix(vec3f(1.0), CITRINK[3] * 2.2, 0.55);
+  return vec4f(base + streak * tint * intensity, 1.0);
 }`,
     },
   ],
@@ -639,43 +789,27 @@ fn PASS(uv: vec2f, aberration: f32, barrel: f32, vignette: f32) -> vec4f {
   ],
 });
 
-// Type: the image as text. 5×5 glyphs ordered by ink density, lit with the
-// light end of the Citrink ramp on the darkest colour.
-const GLYPHS = [
-  '.....|.....|.....|.....|.....',
-  '.....|.....|.....|.....|..#..',
-  '.....|..#..|.....|..#..|.....',
-  '.....|.....|.###.|.....|.....',
-  '.....|.###.|.....|.###.|.....',
-  '.....|..#..|.###.|..#..|.....',
-  '.....|.#.#.|..#..|.#.#.|.....',
-  '.#.#.|#####|.#.#.|#####|.#.#.',
-  '##..#|##.#.|..#..|.#.##|#..##',
-  '.###.|#...#|#.###|#.##.|.####',
-].map((g) => parseInt(g.replace(/\|/g, '').replace(/#/g, '1').replace(/\./g, '0'), 2));
-
+// Type: the image written in Martian Mono. Cells are 3:4 like the glyphs;
+// brighter cells get denser characters from the atlas (src/gpu/glyphs.ts),
+// lit with the light end of the Citrink ramp on the darkest colour.
 def({
   name: 'ascii',
   kind: 'filter',
-  params: [p('cell', 10), p('contrast', 1.3)],
+  params: [p('cell', 12), p('contrast', 1.3)],
   passes: [
     {
       inputs: ['in0'],
       wgsl: /* wgsl */ `
-var<private> GLYPHS: array<u32, 10> = array<u32, 10>(${GLYPHS.map((g) => `${g}u`).join(', ')});
-
 fn PASS(uv: vec2f, cell: f32, contrast: f32) -> vec4f {
-  let cs = max(floor(cell), 4.0);
+  let cw = max(floor(cell), 4.0);
+  let size = vec2f(cw, floor(cw * 4.0 / 3.0));
   let res = vec2f(textureDimensions(T0));
-  let id = floor(FC / cs);
-  let c = textureSampleLevel(T0, samp, (id + 0.5) * cs / res, 0.0);
+  let id = floor(FC / size);
+  let c = textureSampleLevel(T0, samp, (id + 0.5) * size / res, 0.0);
   let l = clamp((luma(c.rgb) - 0.5) * contrast + 0.5, 0.0, 1.0);
-  let gi = u32(min(l * 10.0, 9.0));
-  let g = vec2u(floor(fract(FC / cs) * 6.0));
-  var on = 0.0;
-  if (g.x < 5u && g.y < 5u) {
-    on = f32((GLYPHS[gi] >> (24u - (g.y * 5u + g.x))) & 1u);
-  }
+  let gi = min(floor(l * 16.0), 15.0);
+  let local = fract(FC / size);
+  let on = textureSampleLevel(t_glyphs, samp, vec2f((gi + local.x) / 16.0, local.y), 0.0).r;
   let ink = CITRINK[u32(clamp(3.0 + l * 4.99, 3.0, 7.0))];
   return vec4f(mix(CITRINK[0], ink, on), 1.0);
 }`,
@@ -683,33 +817,47 @@ fn PASS(uv: vec2f, cell: f32, contrast: f32) -> vec4f {
   ],
 });
 
-// Tessellation: stained glass. Each Voronoi cell takes the colour at its seed,
-// with lead lines in the darkest Citrink colour. Seeds drift with `jitter`.
+// Tessellation: stained glass. A coarse grid of seeds where busy cells (where
+// the image has edges) split into four, so the glass is fine where there is
+// detail and broad where it is calm. Each cell takes the colour at its seed,
+// with lead lines in the darkest Citrink colour.
 def({
   name: 'vitral',
   kind: 'filter',
-  params: [p('scale', 14), p('border', 0.08), p('jitter', 0.6)],
+  params: [p('scale', 10), p('border', 0.08), p('jitter', 0.5), p('detail', 0.6)],
   passes: [
     {
       inputs: ['in0'],
       wgsl: /* wgsl */ `
-fn PASS(uv: vec2f, scale: f32, border: f32, jitter: f32) -> vec4f {
+fn detailAt(p: vec2f, r: f32) -> f32 {
+  return abs(lumaAt(T0, p + vec2f(r, 0.0)) - lumaAt(T0, p - vec2f(r, 0.0)))
+       + abs(lumaAt(T0, p + vec2f(0.0, r)) - lumaAt(T0, p - vec2f(0.0, r)));
+}
+
+fn PASS(uv: vec2f, scale: f32, border: f32, jitter: f32, detail: f32) -> vec4f {
   let asp = G.res.x / G.res.y;
   let sc = max(scale, 1.0);
   let q = vec2f(uv.x * asp, uv.y) * sc;
   let cell = floor(q);
-  let f = fract(q);
   var d1 = 8.0;
   var d2 = 8.0;
   var seed = vec2f(0.0);
   for (var y = -1; y <= 1; y++) {
     for (var x = -1; x <= 1; x++) {
-      let g = vec2f(f32(x), f32(y));
-      let h = vec2f(hash3(vec3f(cell + g, 3.1)), hash3(vec3f(cell + g, 7.7)));
-      let pt = g + 0.5 + jitter * 0.45 * sin(G.time * 0.4 + TAU * h);
-      let d = length(pt - f);
-      if (d < d1) { d2 = d1; d1 = d; seed = cell + pt; }
-      else if (d < d2) { d2 = d; }
+      let g = cell + vec2f(f32(x), f32(y));
+      let centreUv = vec2f((g.x + 0.5) / sc / asp, (g.y + 0.5) / sc);
+      let busy = detailAt(centreUv, 0.5 / sc) * 4.0 > 1.0 - clamp(detail, 0.0, 1.0);
+      let n = select(1, 2, busy);
+      for (var sy = 0; sy < n; sy++) {
+        for (var sx = 0; sx < n; sx++) {
+          let sub = vec2f(f32(sx), f32(sy));
+          let h = vec2f(hash3(vec3f(g + sub * 0.37, 3.1)), hash3(vec3f(g + sub * 0.37, 7.7)));
+          let pt = g + (sub + 0.5 + jitter * 0.45 * sin(G.time * 0.4 + TAU * h)) / f32(n);
+          let d = length(pt - q);
+          if (d < d1) { d2 = d1; d1 = d; seed = pt; }
+          else if (d < d2) { d2 = d; }
+        }
+      }
     }
   }
   let c = textureSampleLevel(T0, samp, vec2f(seed.x / sc / asp, seed.y / sc), 0.0);
@@ -721,23 +869,29 @@ fn PASS(uv: vec2f, scale: f32, border: f32, jitter: f32) -> vec4f {
 });
 
 // Signal: analogue video. Per-line jitter, a rolling tracking band with snow,
-// chroma bleed and scanlines.
+// chroma bleed and scanlines. `desync` (0-1) loses the sync: the picture
+// rolls, the horizontal hold slips and the snow takes over.
 def({
   name: 'vhs',
   kind: 'filter',
-  params: [p('tracking', 0.5), p('noise', 0.6), p('bleed', 1.2)],
+  params: [p('tracking', 0.5), p('noise', 0.6), p('bleed', 1.2), p('desync', 0)],
   passes: [
     {
       inputs: ['in0'],
       wgsl: /* wgsl */ `
-fn PASS(uv: vec2f, tracking: f32, noise: f32, bleed: f32) -> vec4f {
+fn PASS(uv: vec2f, tracking: f32, noise: f32, bleed: f32, desync: f32) -> vec4f {
   let px = 1.0 / vec2f(textureDimensions(T0));
   let t = G.time;
+  let ds = clamp(desync, 0.0, 1.0);
+  let nz = noise + ds * 0.8;
   let inBand = 1.0 - smoothstep(0.0, 0.05, abs(fract(uv.y - t * 0.11) - 0.5));
   let row = floor(uv.y / px.y);
-  let jitter = (hash3(vec3f(row, floor(t * 30.0), 1.0)) - 0.5) * noise * 0.006;
+  let jitter = (hash3(vec3f(row, floor(t * 30.0), 1.0)) - 0.5) * nz * 0.006;
   let tear = inBand * tracking * 0.05 * (hash3(vec3f(floor(t * 12.0), row * 0.01, 3.0)) - 0.3);
-  let u = vec2f(uv.x + jitter + tear, uv.y);
+  // vertical roll and slipping horizontal hold
+  let roll = ds * fract(t * 0.6);
+  let hold = ds * (uv.y - 0.5) * 0.18;
+  let u = vec2f(uv.x + jitter + tear + hold, fract(uv.y + roll));
   let shift = vec2f(bleed * 3.0 * px.x, 0.0);
   var col = vec3f(
     textureSampleLevel(T0, samp, u + shift, 0.0).r,
@@ -745,69 +899,138 @@ fn PASS(uv: vec2f, tracking: f32, noise: f32, bleed: f32) -> vec4f {
     textureSampleLevel(T0, samp, u - shift, 0.0).b);
   col *= 0.8 + 0.2 * step(0.5, fract(FC.y * 0.5));
   let snow = hash3(vec3f(FC, floor(t * 60.0)));
-  col = mix(col, vec3f(snow), inBand * noise * 0.4);
+  col = mix(col, vec3f(snow), clamp(inBand * nz * 0.4 + ds * 0.35, 0.0, 1.0));
   return vec4f(col, 1.0);
 }`,
     },
   ],
 });
 
-// Glitch: pixel sorting, approximated. Inside every run of pixels brighter than
-// `threshold`, the first pixel of the run is dragged along `angle` for up to
-// `reach` pixels.
+// Glitch: real pixel sorting, on the GPU. One workgroup per column (at half
+// resolution): every run of pixels whose brightness is within [low, high] is
+// sorted by brightness, upwards or downwards (dir); the rest stays put.
+// Trick: a run's pixels get the key "run start + brightness", the others
+// their own row index, so one bitonic sort of the whole column sorts each run
+// in place without moving anything else.
 def({
   name: 'sort',
-  kind: 'filter',
-  params: [p('threshold', 0.55), p('reach', 220), p('angle', 0)],
-  passes: [
-    {
-      inputs: ['in0'],
-      wgsl: /* wgsl */ `
-fn PASS(uv: vec2f, threshold: f32, reach: f32, angle: f32) -> vec4f {
-  let c = textureSampleLevel(T0, samp, uv, 0.0);
-  if (luma(c.rgb) < threshold) { return c; }
-  let px = 1.0 / vec2f(textureDimensions(T0));
-  let dir = vec2f(sin(angle) * px.x, cos(angle) * px.y) * (reach / 24.0);
-  var src = uv;
-  for (var i = 1; i <= 24; i++) {
-    let q = uv - dir * f32(i);
-    if (luma(textureSampleLevel(T0, samp, q, 0.0).rgb) < threshold) { break; }
-    src = q;
+  kind: 'processor',
+  params: [p('low', 0.35), p('high', 1), p('dir', 0)],
+  compute: {
+    scale: 0.5,
+    wgsl: /* wgsl */ `
+const N: u32 = 1024u;
+var<workgroup> keys: array<f32, 1024>;
+var<workgroup> cols: array<u32, 1024>;
+
+@compute @workgroup_size(256)
+fn main(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_index) li: u32) {
+  let size = textureDimensions(OUT);
+  let x = wg.x;
+  let h = min(size.y, N);
+  let lo = p_low();
+  let hi = max(p_high(), lo);
+  let up = p_dir() < 0.5;
+
+  for (var k = 0u; k < 4u; k++) {
+    let i = li * 4u + k;
+    if (i < h) {
+      let c = textureSampleLevel(T0, samp, (vec2f(f32(x), f32(i)) + 0.5) / vec2f(size), 0.0);
+      cols[i] = pack4x8unorm(clamp(c, vec4f(0.0), vec4f(1.0)));
+      keys[i] = luma(c.rgb);
+    } else {
+      keys[i] = 1e9;
+      cols[i] = 0u;
+    }
   }
-  return textureSampleLevel(T0, samp, src, 0.0);
+  workgroupBarrier();
+
+  // one walk down the column turns brightness into sort keys
+  if (li == 0u) {
+    var start = 0u;
+    var inRun = false;
+    for (var i = 0u; i < h; i++) {
+      let l = keys[i];
+      let sel = l >= lo && l <= hi;
+      if (sel && !inRun) { start = i; }
+      inRun = sel;
+      keys[i] = select(f32(i), f32(start) + select(1.0 - l, l, up) * 0.999, sel);
+    }
+  }
+  workgroupBarrier();
+
+  // bitonic sort; each thread owns 4 indices and handles the pairs it leads
+  for (var kk = 2u; kk <= N; kk = kk << 1u) {
+    for (var j = kk >> 1u; j > 0u; j = j >> 1u) {
+      for (var t = 0u; t < 4u; t++) {
+        let i = li * 4u + t;
+        let ixj = i ^ j;
+        if (ixj > i) {
+          let ascending = (i & kk) == 0u;
+          let a = keys[i];
+          let b = keys[ixj];
+          if ((a > b) == ascending) {
+            keys[i] = b;
+            keys[ixj] = a;
+            let ca = cols[i];
+            cols[i] = cols[ixj];
+            cols[ixj] = ca;
+          }
+        }
+      }
+      workgroupBarrier();
+    }
+  }
+
+  for (var k = 0u; k < 4u; k++) {
+    let i = li * 4u + k;
+    if (i < h) {
+      textureStore(OUT, vec2u(x, i), unpack4x8unorm(cols[i]));
+    }
+  }
+  // rows past N (only on very tall outputs) are copied untouched
+  for (var i = N + li; i < size.y; i += 256u) {
+    textureStore(OUT, vec2u(x, i), textureSampleLevel(T0, samp, (vec2f(f32(x), f32(i)) + 0.5) / vec2f(size), 0.0));
+  }
 }`,
-    },
-  ],
+  },
 });
 
 /* ---------- 3D scenes (geometry from vertex_index, no vertex buffers) ---------- */
 
-// Relief: the image as terrain seen from above, drawn as ridge lines with
-// hidden-line removal (a dark fill draws first and occludes what's behind).
+// Relief: the image as terrain, drawn as ridge lines with hidden-line removal
+// (a dark fill draws first and occludes what's behind). `rows` is a uniform:
+// the draws cover RELIEF_ROWS_MAX rows and the unused ones collapse off screen.
 const RELIEF_COLS = 128;
-const RELIEF_ROWS = 72;
+const RELIEF_ROWS_MAX = 140;
 def({
   name: 'relief',
   kind: 'render3d',
-  params: [p('height', 0.5), p('yaw', 0), p('pitch', 0.55), p('dist', 3.2), p('thickness', 1.5)],
+  params: [p('height', 0.5), p('yaw', 0), p('pitch', 0.3), p('dist', 3), p('thickness', 1.6), p('rows', 60)],
   scene: {
     draws: [
-      { vs: 'vs_fill', fs: 'fs_fill', count: (RELIEF_COLS - 1) * (RELIEF_ROWS - 1) * 6 },
-      { vs: 'vs_line', fs: 'fs_line', count: (RELIEF_COLS - 1) * RELIEF_ROWS * 6 },
+      { vs: 'vs_fill', fs: 'fs_fill', count: (RELIEF_COLS - 1) * (RELIEF_ROWS_MAX - 1) * 6 },
+      { vs: 'vs_line', fs: 'fs_line', count: (RELIEF_COLS - 1) * RELIEF_ROWS_MAX * 6 },
     ],
     wgsl: /* wgsl */ `
 const COLS: u32 = ${RELIEF_COLS}u;
-const ROWS: u32 = ${RELIEF_ROWS}u;
+const ROWS_MAX: u32 = ${RELIEF_ROWS_MAX}u;
+// outside the clip volume: triangles made of it are dropped
+const HIDDEN: vec4f = vec4f(2.0, 2.0, 2.0, 1.0);
+
+fn rowCount() -> u32 {
+  return u32(clamp(p_rows(), 4.0, f32(ROWS_MAX)));
+}
 
 fn reliefPos(c: u32, r: u32) -> vec3f {
-  let uv = vec2f(f32(c) / f32(COLS - 1u), f32(r) / f32(ROWS - 1u));
+  let uv = vec2f(f32(c) / f32(COLS - 1u), f32(r) / f32(rowCount() - 1u));
   let depth = 2.0 * G.res.y / G.res.x; // keep the image proportions on the floor
   let h = luma(imageAt(uv).rgb) * p_height();
   return vec3f((uv.x - 0.5) * 2.0, h, (uv.y - 0.5) * depth);
 }
 
 fn reliefCamera() -> mat4x4f {
-  return orbit(p_yaw(), p_pitch(), p_dist(), vec3f(0.0));
+  return orbit(p_yaw(), p_pitch(), p_dist(), vec3f(0.0, 0.1, 0.0));
 }
 
 struct V3 {
@@ -821,11 +1044,14 @@ fn vs_fill(@builtin(vertex_index) i: u32) -> V3 {
   let k = i % 6u;
   var dc = array<u32, 6>(0u, 1u, 0u, 0u, 1u, 1u);
   var dr = array<u32, 6>(0u, 0u, 1u, 1u, 0u, 1u);
-  let c = quad % (COLS - 1u) + dc[k];
-  let r = quad / (COLS - 1u) + dr[k];
+  let row = quad / (COLS - 1u);
   var o: V3;
-  o.pos = reliefCamera() * vec4f(reliefPos(c, r), 1.0);
   o.shade = 0.0;
+  if (row + 1u >= rowCount()) {
+    o.pos = HIDDEN;
+    return o;
+  }
+  o.pos = reliefCamera() * vec4f(reliefPos(quad % (COLS - 1u) + dc[k], row + dr[k]), 1.0);
   return o;
 }
 
@@ -841,6 +1067,12 @@ fn vs_line(@builtin(vertex_index) i: u32) -> V3 {
   let k = i % 6u;
   let c = seg % (COLS - 1u);
   let r = seg / (COLS - 1u);
+  var o: V3;
+  o.shade = 0.0;
+  if (r >= rowCount()) {
+    o.pos = HIDDEN;
+    return o;
+  }
   let cam = reliefCamera();
   let pa = reliefPos(c, r);
   let pb = reliefPos(c + 1u, r);
@@ -851,7 +1083,6 @@ fn vs_line(@builtin(vertex_index) i: u32) -> V3 {
   let d = normalize((b.xy / b.w - a.xy / a.w) * G.res + vec2f(0.00001, 0.0));
   let n = vec2f(-d.y, d.x) * p_thickness() / G.res;
   let q = select(a, b, ends[k] == 1u);
-  var o: V3;
   // nudge towards the camera so the line wins over its own fill
   o.pos = vec4f(q.xy + n * side[k] * q.w, q.z - 0.002 * q.w, q.w);
   o.shade = (pa.y + pb.y) * 0.5 / max(p_height(), 0.001);
@@ -866,13 +1097,14 @@ fn fs_line(in: V3) -> @location(0) vec4f {
 });
 
 // Cloud: one point per sample, coloured by the camera, pushed in depth by its
-// luminance. Points are round quads that shrink with distance.
+// luminance. Brighter points are bigger; `drift` lets them float on a slow
+// noise field so the volume reads even with a still camera.
 const CLOUD_X = 120;
 const CLOUD_Y = 210;
 def({
   name: 'cloud',
   kind: 'render3d',
-  params: [p('depth', 0.8), p('size', 3), p('yaw', 0), p('pitch', 0), p('dist', 2.6), p('scatter', 0)],
+  params: [p('depth', 0.9), p('size', 3), p('yaw', 0.5), p('pitch', 0.18), p('dist', 2.7), p('drift', 0.05)],
   scene: {
     draws: [{ vs: 'vs_points', fs: 'fs_points', count: CLOUD_X * CLOUD_Y * 6 }],
     wgsl: /* wgsl */ `
@@ -891,16 +1123,22 @@ fn vs_points(@builtin(vertex_index) i: u32) -> VP {
   let k = i % 6u;
   let uv = (vec2f(f32(id % NX), f32(id / NX)) + 0.5) / vec2f(f32(NX), f32(NY));
   let c = imageAt(uv);
+  let l = luma(c.rgb);
   let asp = G.res.x / G.res.y;
-  let jitter = (vec3f(hash3(vec3f(uv, 1.0)), hash3(vec3f(uv, 2.0)), hash3(vec3f(uv, 3.0))) - 0.5) * p_scatter();
-  let world = vec3f((uv.x - 0.5) * 2.0 * asp, (0.5 - uv.y) * 2.0, (luma(c.rgb) - 0.5) * p_depth()) + jitter;
+  let t = G.time * 0.3;
+  let drift = vec3f(
+    vnoise(vec3f(uv * 6.0, t)),
+    vnoise(vec3f(uv * 6.0 + 11.0, t)),
+    vnoise(vec3f(uv * 6.0 + 23.0, t))) - 0.5;
+  let world = vec3f((uv.x - 0.5) * 2.0 * asp, (0.5 - uv.y) * 2.0, (l - 0.5) * p_depth()) + drift * p_drift();
   let clip = orbit(p_yaw(), p_pitch(), p_dist(), vec3f(0.0)) * vec4f(world, 1.0);
   var cx = array<f32, 6>(-1.0, 1.0, -1.0, -1.0, 1.0, 1.0);
   var cy = array<f32, 6>(-1.0, -1.0, 1.0, 1.0, -1.0, 1.0);
   let corner = vec2f(cx[k], cy[k]);
+  let size = p_size() * (0.35 + 1.3 * l);
   var o: VP;
   // a constant clip-space offset becomes smaller in NDC the further away it is
-  o.pos = vec4f(clip.xy + corner * p_size() / G.res * p_dist(), clip.z, clip.w);
+  o.pos = vec4f(clip.xy + corner * size / G.res * p_dist(), clip.z, clip.w);
   o.col = c.rgb;
   o.corner = corner;
   return o;
@@ -915,7 +1153,7 @@ fn fs_points(in: VP) -> @location(0) vec4f {
 });
 
 // City: a block per cell, as tall as the image is bright, coloured by height
-// along the Citrink ramp and lit from one side.
+// along the Citrink ramp and lit from one side. Seen isometric: no perspective.
 const CITY_X = 32;
 const CITY_Z = 56;
 const CUBE_FACES: [number, number, number][][] = [
@@ -931,7 +1169,7 @@ const v3 = (v: number[]) => `vec3f(${v.map((x) => x.toFixed(1)).join(', ')})`;
 def({
   name: 'city',
   kind: 'render3d',
-  params: [p('height', 0.8), p('yaw', 0), p('pitch', 0.6), p('dist', 3.4), p('gap', 0.15)],
+  params: [p('height', 0.8), p('yaw', 0.785), p('pitch', 0.6155), p('zoom', 1.7), p('gap', 0.15)],
   scene: {
     draws: [{ vs: 'vs_city', fs: 'fs_city', count: CITY_X * CITY_Z * 36 }],
     wgsl: /* wgsl */ `
@@ -963,7 +1201,7 @@ fn vs_city(@builtin(vertex_index) i: u32) -> VC {
   let world = base + vec3f((g * 0.5 + local.x * (1.0 - g)) * cellW, local.y * h, (g * 0.5 + local.z * (1.0 - g)) * cellD);
   let light = 0.45 + 0.55 * max(dot(NORMALS[k / 6u], normalize(vec3f(0.4, 0.9, 0.3))), 0.0);
   var o: VC;
-  o.pos = orbit(p_yaw(), p_pitch(), p_dist(), vec3f(0.0, 0.2, 0.0)) * vec4f(world, 1.0);
+  o.pos = isoCamera(p_yaw(), p_pitch(), p_zoom(), vec3f(0.0, 0.2, 0.0)) * vec4f(world, 1.0);
   o.col = CITRINK[u32(clamp(1.0 + l * 6.99, 1.0, 7.0))] * light;
   return o;
 }
@@ -1005,6 +1243,23 @@ fn orbit(yaw: f32, pitch: f32, dist: f32, focus: vec3f) -> mat4x4f {
   let pt = clamp(pitch, -1.4, 1.4);
   let eye = focus + max(dist, 0.1) * vec3f(cos(pt) * sin(yaw), sin(pt), cos(pt) * cos(yaw));
   return perspective(0.8, G.res.x / G.res.y, 0.05, 50.0) * lookAt(eye, focus);
+}
+
+fn ortho(halfH: f32, aspect: f32, near: f32, far: f32) -> mat4x4f {
+  let h = max(halfH, 0.01);
+  let w = h * aspect;
+  return mat4x4f(
+    vec4f(1.0 / w, 0.0, 0.0, 0.0),
+    vec4f(0.0, 1.0 / h, 0.0, 0.0),
+    vec4f(0.0, 0.0, 1.0 / (near - far), 0.0),
+    vec4f(0.0, 0.0, near / (near - far), 1.0));
+}
+
+/** Orthographic camera (isometric at yaw 45°, pitch 35.26°); \`halfH\` is the visible half height. */
+fn isoCamera(yaw: f32, pitch: f32, halfH: f32, focus: vec3f) -> mat4x4f {
+  let pt = clamp(pitch, -1.4, 1.4);
+  let eye = focus + 10.0 * vec3f(cos(pt) * sin(yaw), sin(pt), cos(pt) * cos(yaw));
+  return ortho(halfH, G.res.x / G.res.y, 0.1, 30.0) * lookAt(eye, focus);
 }
 
 fn imageAt(uv: vec2f) -> vec4f {

@@ -151,8 +151,10 @@ scope.addEventListener('message', async (e) => {
         break;
       case 'photo':
         photoRequested = true;
+        signals.trigger('shot', performance.now() / 1000);
         break;
       case 'recStart':
+        signals.trigger('shot', performance.now() / 1000);
         await recorder.begin(engine!.canvas, performance.now());
         post({ type: 'recStarted' });
         break;

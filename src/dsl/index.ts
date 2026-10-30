@@ -7,7 +7,7 @@
 //     k.citrink(1).out(0);
 //   });
 
-import type { EffectGraph, LfoShape, Macro, Mod, MotionChannel, NodeSpec, OutputId, SignalSource, TouchChannel } from '../graph/types';
+import type { EffectGraph, EventChannel, LfoShape, Macro, Mod, MotionChannel, NodeSpec, OutputId, SignalSource, TouchChannel } from '../graph/types';
 import { OPS } from '../ops/registry';
 
 type N = number | undefined;
@@ -78,6 +78,7 @@ export class Chain {
 
   // color
   hue(amount?: number) { return this.un('hue', [amount]); }
+  gain(amount?: number) { return this.un('gain', [amount]); }
   posterize(bins?: number, gamma?: number) { return this.un('posterize', [bins, gamma]); }
   contrast(amount?: number) { return this.un('contrast', [amount]); }
   brightness(amount?: number) { return this.un('brightness', [amount]); }
@@ -92,6 +93,8 @@ export class Chain {
   add(other: Chain, amount?: number) { return this.bin('add', other, [amount]); }
   mult(other: Chain, amount?: number) { return this.bin('mult', other, [amount]); }
   diff(other: Chain) { return this.bin('diff', other, []); }
+  /** Per channel max(this, other * amount). */
+  lighten(other: Chain, amount?: number) { return this.bin('lighten', other, [amount]); }
 
   // modulation
   modulate(other: Chain, amount?: number) { return this.bin('modulate', other, [amount]); }
@@ -110,25 +113,36 @@ export class Chain {
   /** Slides this image along the luminance gradient of `map` (TouchDesigner Displace). */
   displace(map: Chain, amount?: number) { return this.bin('displace', map, [amount]); }
   /** Two-ink halftone on paper, second plate out of register by `offset` px. */
-  riso(offset?: number, cell?: number, gain?: number) { return this.un('riso', [offset, cell, gain]); }
+  /** variant 0-11: ink pair (variant % 4) and screen: dots, lines, cross (variant / 4). */
+  riso(offset?: number, cell?: number, gain?: number, variant?: number, jolt?: number) {
+    return this.un('riso', [offset, cell, gain, variant, jolt]);
+  }
   /** Slit-scan: this chain is the history (usually o(0)), `live` feeds it at `line`. */
-  slit(live: Chain, speed?: number, line?: number) { return this.bin('slit', live, [speed, line]); }
+  /** shape 0: horizontal, 1: vertical, 2: radial. */
+  slit(live: Chain, speed?: number, line?: number, shape?: number) { return this.bin('slit', live, [speed, line, shape]); }
+  /** Facing mirrors: `previous` (usually o(0)) nested inside a frame on top of this. */
+  abyss(previous: Chain, scale?: number, angle?: number, shift?: number) { return this.bin('abyss', previous, [scale, angle, shift]); }
   lens(aberration?: number, barrel?: number, vignette?: number) { return this.un('lens', [aberration, barrel, vignette]); }
+  /** Anamorphic streaks from bright spots; `reach` in output pixels. */
+  flare(threshold?: number, reach?: number, intensity?: number) { return this.un('flare', [threshold, reach, intensity]); }
   ascii(cell?: number, contrast?: number) { return this.un('ascii', [cell, contrast]); }
 
   // 3D scenes (rendered with depth into their own texture)
-  relief(height?: number, yaw?: number, pitch?: number, dist?: number, thickness?: number) {
-    return this.un('relief', [height, yaw, pitch, dist, thickness]);
+  relief(height?: number, yaw?: number, pitch?: number, dist?: number, thickness?: number, rows?: number) {
+    return this.un('relief', [height, yaw, pitch, dist, thickness, rows]);
   }
-  cloud(depth?: number, size?: number, yaw?: number, pitch?: number, dist?: number, scatter?: number) {
-    return this.un('cloud', [depth, size, yaw, pitch, dist, scatter]);
+  cloud(depth?: number, size?: number, yaw?: number, pitch?: number, dist?: number, drift?: number) {
+    return this.un('cloud', [depth, size, yaw, pitch, dist, drift]);
   }
-  city(height?: number, yaw?: number, pitch?: number, dist?: number, gap?: number) {
-    return this.un('city', [height, yaw, pitch, dist, gap]);
+  /** Isometric: `zoom` is the visible half height in scene units. */
+  city(height?: number, yaw?: number, pitch?: number, zoom?: number, gap?: number) {
+    return this.un('city', [height, yaw, pitch, zoom, gap]);
   }
-  vitral(scale?: number, border?: number, jitter?: number) { return this.un('vitral', [scale, border, jitter]); }
-  vhs(tracking?: number, noise?: number, bleed?: number) { return this.un('vhs', [tracking, noise, bleed]); }
-  sort(threshold?: number, reach?: number, angle?: number) { return this.un('sort', [threshold, reach, angle]); }
+  /** Cells split into four where the image is busy; `detail` 0-1 is how easily. */
+  vitral(scale?: number, border?: number, jitter?: number, detail?: number) { return this.un('vitral', [scale, border, jitter, detail]); }
+  vhs(tracking?: number, noise?: number, bleed?: number, desync?: number) { return this.un('vhs', [tracking, noise, bleed, desync]); }
+  /** Pixel sorting (compute): runs within [low, high] brightness, dir 0 = up, 1 = down. */
+  sort(low?: number, high?: number, dir?: number) { return this.un('sort', [low, high, dir]); }
 
   out(index: 0 | 1 | 2 | 3 = 0) {
     this.builder.outputs[`o${index}`] = this.id;
@@ -157,6 +171,8 @@ export const lfo = (shape: LfoShape, rate: number, phase?: number): SignalSource
   phase === undefined ? { kind: 'lfo', shape, rate } : { kind: 'lfo', shape, rate, phase };
 export const touch = (channel: TouchChannel): SignalSource => ({ kind: 'touch', channel });
 export const motion = (channel: MotionChannel): SignalSource => ({ kind: 'motion', channel });
+/** A pulse on an event (1 → 0 in 0.6 s): 'shot' = photo or start of recording. */
+export const event = (channel: EventChannel): SignalSource => ({ kind: 'event', channel });
 
 export interface MacroApi {
   /** Exposes a param to the gestures: 1st = drag x, 2nd = drag y, 3rd = two-finger twist. */

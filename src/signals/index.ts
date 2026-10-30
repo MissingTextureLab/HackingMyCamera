@@ -2,7 +2,7 @@
 // worker: every frame each Mod reads a source normalized to 0…1, maps it to
 // its range and writes the param's uniform. No allocation per frame.
 
-import type { LfoShape, Mod, SignalSource, TouchChannel } from '../graph/types';
+import type { EventChannel, LfoShape, Mod, SignalSource, TouchChannel } from '../graph/types';
 
 export interface TouchSnapshot {
   down: number;
@@ -71,8 +71,24 @@ export interface MotionSnapshot {
 }
 export const TILT_RANGE = 25;
 
-export function sourceValue(src: SignalSource, time: number, touch: TouchSnapshot, motion: MotionSnapshot = { x: 0, y: 0 }): number {
+/** How long an event pulse lasts, in seconds. */
+export const EVENT_DECAY = 0.6;
+
+export function eventValue(at: number | undefined, time: number): number {
+  if (at === undefined) return 0;
+  const k = clamp01(1 - (time - at) / EVENT_DECAY);
+  return k * k;
+}
+
+export function sourceValue(
+  src: SignalSource,
+  time: number,
+  touch: TouchSnapshot,
+  motion: MotionSnapshot = { x: 0, y: 0 },
+  events: Partial<Record<EventChannel, number>> = {},
+): number {
   if (src.kind === 'touch') return touchValue(touch, src.channel);
+  if (src.kind === 'event') return eventValue(events[src.channel], time);
   if (src.kind === 'motion') return clamp01(0.5 + motion[src.channel] / (2 * TILT_RANGE));
   const cycles = time * src.rate + (src.phase ?? 0);
   return lfo(src.shape, cycles, Math.floor(cycles));
@@ -88,6 +104,13 @@ export class Signals {
   private bound: Bound[] = [];
   readonly touch: TouchSnapshot = { down: 0, x: 0.5, y: 0.5, vx: 0, vy: 0, count: 0, pinch: 1 };
   readonly motion: MotionSnapshot = { x: 0, y: 0 };
+
+  /** When each event last fired, in signal time (seconds). */
+  readonly events: Partial<Record<EventChannel, number>> = {};
+
+  trigger(channel: EventChannel, time: number) {
+    this.events[channel] = time;
+  }
 
   setMotion(m: MotionSnapshot) {
     this.motion.x = m.x;
@@ -111,7 +134,7 @@ export class Signals {
   update(time: number, dt: number, write: (slot: number, value: number) => void) {
     for (const b of this.bound) {
       const { mod } = b;
-      const v = sourceValue(mod.source, time, this.touch, this.motion);
+      const v = sourceValue(mod.source, time, this.touch, this.motion, this.events);
       let target = mod.range[0] + (mod.range[1] - mod.range[0]) * v;
       const smooth = mod.smooth ?? 0;
       // frame-rate independent one-pole: `smooth` is the per-frame factor at 60 fps

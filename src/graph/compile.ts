@@ -10,6 +10,21 @@ import type { EffectGraph, OutputId } from './types';
 import { OUTPUTS } from './types';
 import { arity, FILTER_PRELUDE, OPS, PRELUDE, SCENE_PRELUDE, SNIPPET_DEPS, type SceneDraw } from '../ops/registry';
 
+/** Bindings of a processor (compute) pass; the runtime mirrors it. */
+export const COMPUTE_HEADER = /* wgsl */ `
+struct Globals {
+  time: f32,
+  dt: f32,
+  res: vec2f,
+  camFit: vec4f,
+};
+@group(0) @binding(0) var<uniform> G: Globals;
+@group(0) @binding(1) var<uniform> P: array<vec4f, 64>;
+@group(0) @binding(2) var T0: texture_2d<f32>;
+@group(0) @binding(3) var OUT: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(4) var samp: sampler;
+`;
+
 /** Max f32 params per effect: P is array<vec4f, 64>. */
 export const MAX_PARAMS = 256;
 /** Textures a single pass can read besides the camera and o0–o3 (T0…T3). */
@@ -25,6 +40,8 @@ export interface CompiledPass {
   target: PassTarget;
   /** 3D scene: draw calls with a depth buffer. Absent: one fullscreen triangle (vs/fs). */
   draws?: SceneDraw[];
+  /** Processor: a compute pass (entry `main`), one workgroup per column of its target. */
+  compute?: boolean;
 }
 
 export interface TempTexture {
@@ -33,6 +50,8 @@ export interface TempTexture {
   scale: number;
   /** Needs a depth buffer of the same size (3D scenes). */
   depth?: boolean;
+  /** Written by a compute pass (storage texture). */
+  storage?: boolean;
 }
 
 export interface CompiledEffect {
@@ -62,6 +81,7 @@ struct Globals {
 @group(0) @binding(5) var t_o1: texture_2d<f32>;
 @group(0) @binding(6) var t_o2: texture_2d<f32>;
 @group(0) @binding(7) var t_o3: texture_2d<f32>;
+@group(0) @binding(8) var t_glyphs: texture_2d<f32>;
 @group(1) @binding(0) var T0: texture_2d<f32>;
 @group(1) @binding(1) var T1: texture_2d<f32>;
 @group(1) @binding(2) var T2: texture_2d<f32>;
@@ -133,7 +153,7 @@ export function compileEffect(graph: EffectGraph): CompiledEffect {
   const materialized = new Set<string>();
   for (const [id, node] of Object.entries(nodes)) {
     const kind = OPS[node.op].kind;
-    if (kind === 'filter' || kind === 'render3d') {
+    if (kind === 'filter' || kind === 'render3d' || kind === 'processor') {
       materialized.add(id);
       for (const src of node.in ?? []) materialized.add(src);
     }
@@ -142,6 +162,7 @@ export function compileEffect(graph: EffectGraph): CompiledEffect {
   const passes: CompiledPass[] = [];
   const temps = new Map<string, number>();
   const depthTemps = new Set<string>();
+  const storageTemps = new Set<string>();
   const done = new Set<string>();
   const inProgress = new Set<string>();
 
@@ -219,6 +240,7 @@ export function compileEffect(graph: EffectGraph): CompiledEffect {
             break;
           case 'filter':
           case 'render3d':
+          case 'processor':
             throw new Error(`internal: ${def.kind} ${id} reached the fuser`);
         }
       }
@@ -249,6 +271,16 @@ export function compileEffect(graph: EffectGraph): CompiledEffect {
         const wgsl = [HEADER, PRELUDE, FILTER_PRELUDE, fp.wgsl.trim(), fragment(call)].join('\n\n');
         passes.push({ wgsl, inputs, target: { kind: 'temp', id: tempId } });
       });
+    } else if (def.kind === 'processor') {
+      const input = node.in![0];
+      materialize(input);
+      temps.set(id, def.compute!.scale ?? 1);
+      storageTemps.add(id);
+      const accessors = def.params
+        .filter((p) => !p.structural)
+        .map((p) => `fn p_${p.name}() -> f32 {\n  return ${param(id, p.name)};\n}`);
+      const wgsl = [COMPUTE_HEADER, PRELUDE, ...accessors, def.compute!.wgsl.trim()].join('\n\n');
+      passes.push({ wgsl, inputs: [input], target: { kind: 'temp', id }, compute: true });
     } else if (def.kind === 'render3d') {
       const input = node.in![0];
       materialize(input);
@@ -289,7 +321,12 @@ export function compileEffect(graph: EffectGraph): CompiledEffect {
 
   return {
     passes,
-    temps: [...temps].map(([id, scale]) => (depthTemps.has(id) ? { id, scale, depth: true } : { id, scale })),
+    temps: [...temps].map(([id, scale]) => ({
+      id,
+      scale,
+      ...(depthTemps.has(id) ? { depth: true } : {}),
+      ...(storageTemps.has(id) ? { storage: true } : {}),
+    })),
     slots,
     values,
     display: graph.display,
