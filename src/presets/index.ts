@@ -9,11 +9,11 @@ import type { EffectGraph } from '../graph/types';
 // Print, comic-book style: inked shadows and contours, a fine soft screen on
 // textured paper, a colour plate out of register; shooting knocks it apart.
 const trama = effect({ id: 'trama', code: '07', name: 'Trama' }, (m) => {
-  const r = cam().contrast(1.1).comic(4.5, 3, 1, 1, 0);
-  m.macro('REGISTRO', r, 'offset', 0, 10);
+  const r = cam().contrast(1.1).comic(4.5, 8, 1, 1, 0);
+  m.macro('REGISTRO', r, 'offset', 0, 64);
   m.macro('PUNTO', r, 'cell', 3, 12);
   m.macro('TINTA', r, 'ink', 0.4, 1.6);
-  m.mod(r, 'jolt', event('shot'), 0, 18);
+  m.mod(r, 'jolt', event('shot'), 0, 48);
   r.out(0);
 });
 
