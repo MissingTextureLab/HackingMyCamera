@@ -70,6 +70,7 @@ src/app/       Svelte 5 UI (App, Shutter, EffectStrip) and gestures.ts (drag / p
 - Filters (blur, edge, sharpen, displace, bloom) read neighbours, so their inputs are rendered to temp textures; keep chains fused otherwise. A pass reads at most 4 temps.
 - 3D scenes (`render3d` ops: relief, cloud, city) build geometry from `vertex_index` (no vertex buffers), render with a depth buffer into a temp, and read params via generated `p_<name>()` accessors so the vertex stage can use them.
 - Processors (`kind: 'processor'`, e.g. `sort`) are compute shaders: one workgroup per output column, read their input through `samp`, write a storage temp (rgba16float). Bindings: `COMPUTE_HEADER` in compile.ts.
+- The present pass is the house look ("revelado", DESIGN.md): S curve, Citrink gradient map, 2 px Bayer dither (`HOUSE` in engine.ts) and, on captures only, the date-back stamp (Doto atlas, `Stage.stamp` / `setStampText`). Design effects to read well through it.
 - Binding 8 of group 0 is LETRA's glyph atlas (`src/gpu/glyphs.ts`, built in the worker from Martian Mono and sorted by ink density).
 - Signals: `lfo`, `touch`, `motion` (tilt, currently unused by presets) and `event` (`shot` pulses on photo / start of recording).
 - Patching under Documents: when Edit/Write fail with ENOENT on a `.tmp` file (Controlled Folder Access), apply changes with a Node script that edits files in place.

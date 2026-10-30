@@ -144,6 +144,17 @@ Las escenas 3D (60–69) tienen un encuadre fijo y compuesto, con un balanceo le
 
 Cada efecto expone hasta tres macros con nombre propio (A, B, C; ver *Gestos*).
 
+## Revelado: el sello de la casa
+
+Todo lo que sale de la app (visor, fotos, vídeos y miniaturas) pasa por el mismo revelado final. Es lo que hace que una imagen sea reconocible sin ver la interfaz, igual que un aparato de Teenage Engineering suena a sí mismo en cualquier preset.
+
+1. **Curva de tono:** una S suave, siempre la misma.
+2. **Mapa de degradado Citrink:** la luminosidad se relee a lo largo de la rampa de la paleta (`viewfinder` → `panel` → `panel-deep` → `lagoon` → `grass` → `acid` → `flash` → blanco). El color de la cámara solo asoma al 30 %.
+3. **Tramado ordenado:** 12 niveles con una matriz Bayer de 4×4 a 2 píxeles (1 píxel en las miniaturas). Es la textura de la cultura Lospec y de las pantallas de aparato.
+4. **Sello de fecha:** en las fotos y en los vídeos, abajo a la derecha, como el dorso de fecha de las cámaras de carrete: `FX07 TRAMA 26.10.30`, en Doto, color `flash` con contorno `viewfinder`. No aparece en el visor, donde ya está la etiqueta.
+
+Los valores viven en `HOUSE` (`src/gpu/engine.ts`). Un efecto nuevo no se diseña "a color": se diseña para que funcione a través del revelado.
+
 ## Los efectos y la paleta
 
 Los efectos de la galería también usan Citrink: sus rampas de color, dither y capas de impresión salen de estos ocho colores. Así, la imagen y la interfaz parecen del mismo aparato. Las miniaturas de efecto usan la rampa del efecto, nunca colores fuera de la paleta.

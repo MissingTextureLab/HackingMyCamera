@@ -68,6 +68,8 @@ function loop(now: number) {
     pendingResize = null;
   }
   if (source === 'test') engine.renderTestCard(now / 1000);
+  // the date-back stamp goes on what is captured, not on the viewfinder
+  engine.main.stamp = recorder.active || photoRequested;
   signals.update(now / 1000, dt, writeParam);
   engine.render(now / 1000, dt);
 
@@ -85,6 +87,13 @@ function loop(now: number) {
     fpsSince = now;
     post({ type: 'stats', fps, stats: engine.stats(), source });
   }
+}
+
+/** "FX07 TRAMA 26.10.30": catalogue code, effect, date, like a film camera's data back. */
+function stampText(code: string, name: string) {
+  const d = new Date();
+  const two = (n: number) => String(n).padStart(2, '0');
+  return `FX${code.padStart(2, '0')} ${name} ${two(d.getFullYear() % 100)}.${two(d.getMonth() + 1)}.${two(d.getDate())}`;
 }
 
 async function snapshot() {
@@ -130,6 +139,7 @@ scope.addEventListener('message', async (e) => {
         // graphs may come from files or the editor: never trust their shape
         const graph = validateEffect(msg.graph);
         const compiled = await engine!.setEffect(graph);
+        engine!.main.setStampText(stampText(graph.code, graph.name));
         signals.bind(graph.mods, compiled.slots, compiled.values);
         post({ type: 'effect', id: graph.id, macros: macrosOf(compiled) });
         break;

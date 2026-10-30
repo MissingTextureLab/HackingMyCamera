@@ -3,6 +3,40 @@
 // brighter cell gets a denser character.
 
 import fontUrl from '@fontsource/martian-mono/files/martian-mono-latin-500-normal.woff2?url';
+import dotoUrl from '@fontsource/doto/files/doto-latin-700-normal.woff2?url';
+
+/** Characters the date-back stamp can print, in atlas order. */
+export const STAMP_CHARS = " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZÑ-.:/'";
+export const STAMP_W = 40;
+export const STAMP_H = 64;
+
+/** The stamp's alphabet in Doto (the identity's dot-matrix face), one row. */
+export async function buildStampAtlas(): Promise<OffscreenCanvas> {
+  let family = 'monospace';
+  try {
+    const face = new FontFace('HMC Dot', `url(${dotoUrl})`, { weight: '700' });
+    await face.load();
+    (self as unknown as { fonts: FontFaceSet }).fonts.add(face);
+    family = '"HMC Dot"';
+  } catch {
+    // generic monospace: the stamp still prints
+  }
+  const atlas = new OffscreenCanvas(STAMP_W * STAMP_CHARS.length, STAMP_H);
+  const ctx = atlas.getContext('2d') as OffscreenCanvasRenderingContext2D;
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, atlas.width, atlas.height);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `700 ${Math.round(STAMP_H * 0.85)}px ${family}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  [...STAMP_CHARS].forEach((ch, i) => ctx.fillText(ch, i * STAMP_W + STAMP_W / 2, STAMP_H / 2 + 2));
+  return atlas;
+}
+
+/** Text → atlas indices; anything outside the alphabet becomes a space. */
+export function stampCodes(text: string): number[] {
+  return [...text.toUpperCase()].map((ch) => Math.max(0, STAMP_CHARS.indexOf(ch)));
+}
 
 export const GLYPH_COUNT = 16;
 export const GLYPH_W = 48;

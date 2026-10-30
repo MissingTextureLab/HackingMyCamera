@@ -10,15 +10,44 @@
 import { compileEffect, MAX_PARAMS, MAX_PASS_INPUTS, type CompiledEffect } from '../graph/compile';
 import type { EffectGraph } from '../graph/types';
 import { OUTPUTS } from '../graph/types';
-import { buildGlyphAtlas } from './glyphs';
+import { buildGlyphAtlas, buildStampAtlas, stampCodes, STAMP_CHARS, STAMP_H, STAMP_W } from './glyphs';
 
 const BUFFER_FORMAT: GPUTextureFormat = 'rgba16float';
 
+// The house look ("revelado Citrink"): every surface ends here, so the
+// viewfinder, photos, videos and thumbnails share it. A gentle S curve, the
+// luminance re-read along the Citrink ramp, quantized with a 2 px ordered
+// dither; on captures, a date-back stamp in Doto, bottom right.
 const PRESENT_WGSL = /* wgsl */ `
-struct Present { xerox: f32, pad0: f32, pad1: f32, pad2: f32 };
+struct Present {
+  xerox: f32,
+  ramp: f32,
+  levels: f32,
+  dither: f32,
+  stamp: f32,
+  count: f32,
+  cellH: f32,
+  pad: f32,
+  chars: array<vec4u, 8>,
+};
 @group(0) @binding(0) var<uniform> U: Present;
 @group(0) @binding(1) var samp: sampler;
 @group(0) @binding(2) var src: texture_2d<f32>;
+@group(0) @binding(3) var font: texture_2d<f32>;
+
+const ATLAS_COUNT: f32 = ${STAMP_CHARS.length}.0;
+const CHAR_ASPECT: f32 = ${STAMP_W / STAMP_H};
+
+var<private> RAMP: array<vec3f, 8> = array<vec3f, 8>(
+  vec3f(0.12549, 0.08235, 0.2),
+  vec3f(0.14510, 0.14118, 0.27451),
+  vec3f(0.14510, 0.30196, 0.43922),
+  vec3f(0.08627, 0.43137, 0.47843),
+  vec3f(0.32157, 0.76471, 0.24706),
+  vec3f(0.69804, 0.85098, 0.25882),
+  vec3f(0.98824, 0.96471, 0.37647),
+  vec3f(1.0, 1.0, 1.0)
+);
 
 struct VSOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 
@@ -31,15 +60,55 @@ fn vs(@builtin(vertex_index) i: u32) -> VSOut {
   return o;
 }
 
+fn bayer4(p: vec2u) -> f32 {
+  var m = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+  return (m[(p.y % 4u) * 4u + (p.x % 4u)] + 0.5) / 16.0;
+}
+
+fn rampAt(t: f32) -> vec3f {
+  let x = clamp(t, 0.0, 1.0) * 7.0;
+  let i = u32(min(floor(x), 6.0));
+  return mix(RAMP[i], RAMP[i + 1u], x - f32(i));
+}
+
+// coverage of the stamp text at pixel px (0 outside it)
+fn stampInk(px: vec2f, res: vec2f) -> f32 {
+  let n = u32(U.count);
+  let ch = U.cellH;
+  let cw = ch * CHAR_ASPECT;
+  let margin = ch * 1.2;
+  let origin = vec2f(res.x - margin - f32(n) * cw, res.y - margin - ch);
+  let q = (px - origin) / vec2f(cw, ch);
+  if (q.x < 0.0 || q.y < 0.0 || q.x >= f32(n) || q.y >= 1.0) { return 0.0; }
+  let k = u32(q.x);
+  let idx = U.chars[k / 4u][k % 4u];
+  return textureSampleLevel(font, samp, vec2f((f32(idx) + fract(q.x)) / ATLAS_COUNT, q.y), 0.0).r;
+}
+
 @fragment
 fn fs(in: VSOut) -> @location(0) vec4f {
-  let c = textureSampleLevel(src, samp, in.uv, 0.0);
+  let c = clamp(textureSampleLevel(src, samp, in.uv, 0.0).rgb, vec3f(0.0), vec3f(1.0));
+  var l = dot(c, vec3f(0.2126, 0.7152, 0.0722));
   if (U.xerox > 0.5) {
     // photocopy frame: hard threshold onto the darkest and lightest Citrink colours
-    let l = dot(c.rgb, vec3f(0.2126, 0.7152, 0.0722));
-    return select(vec4f(0.12549, 0.08235, 0.2, 1.0), vec4f(1.0), l > 0.42);
+    return select(vec4f(RAMP[0], 1.0), vec4f(1.0), l > 0.42);
   }
-  return vec4f(clamp(c.rgb, vec3f(0.0), vec3f(1.0)), 1.0);
+  l = mix(l, l * l * (3.0 - 2.0 * l), 0.5);
+  let steps = max(U.levels, 2.0) - 1.0;
+  let b = bayer4(vec2u(in.pos.xy / max(U.dither, 1.0)));
+  let t = clamp(floor(l * steps + b) / steps, 0.0, 1.0);
+  var col = mix(c, rampAt(t), clamp(U.ramp, 0.0, 1.0));
+  if (U.stamp > 0.5) {
+    let res = vec2f(textureDimensions(src));
+    // a dark outline all round keeps the yellow legible on light images
+    let d = max(floor(U.cellH * 0.07), 1.0);
+    let outline = max(
+      max(stampInk(in.pos.xy + vec2f(d, 0.0), res), stampInk(in.pos.xy - vec2f(d, 0.0), res)),
+      max(stampInk(in.pos.xy + vec2f(0.0, d), res), stampInk(in.pos.xy - vec2f(0.0, d), res)));
+    col = mix(col, RAMP[0], outline);
+    col = mix(col, RAMP[6], stampInk(in.pos.xy, res));
+  }
+  return vec4f(col, 1.0);
 }
 `;
 
@@ -97,6 +166,11 @@ export interface EngineStats {
 
 const DEPTH_FORMAT: GPUTextureFormat = 'depth24plus';
 
+/** The house look, shared by every surface (DESIGN.md, Revelado). */
+const HOUSE = { ramp: 0.7, levels: 12, dither: 2 };
+const STAMP_MAX = 32;
+const PRESENT_SIZE = 32 + STAMP_MAX * 4;
+
 interface LoadedEffect {
   graph: EffectGraph;
   compiled: CompiledEffect;
@@ -128,6 +202,12 @@ class Stage {
   private outputs: GPUTexture[][] = [];
   private bindGroups: GPUBindGroup[] = [];
   private presentUniform: GPUBuffer;
+  private presentData = new ArrayBuffer(PRESENT_SIZE);
+  private presentF = new Float32Array(this.presentData, 0, 8);
+  private presentU = new Uint32Array(this.presentData, 32, STAMP_MAX);
+  private stampCount = 0;
+  /** Print the date-back stamp on this frame (photos, recording). */
+  stamp = false;
   private presentGroups = new Map<string, GPUBindGroup>();
   private frame = 0;
 
@@ -141,7 +221,7 @@ class Stage {
     this.context.configure({ device: d, format: e.format, alphaMode: 'opaque' });
     this.globals = d.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.params = d.createBuffer({ size: MAX_PARAMS * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.presentUniform = d.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.presentUniform = d.createBuffer({ size: PRESENT_SIZE, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.resize(canvas.width, canvas.height);
   }
 
@@ -181,6 +261,13 @@ class Stage {
       }
     }
     this.e.device.queue.submit([enc.finish()]);
+  }
+
+  setStampText(text: string) {
+    const codes = stampCodes(text).slice(0, STAMP_MAX);
+    this.presentU.fill(0);
+    this.presentU.set(codes);
+    this.stampCount = codes.length;
   }
 
   setParam(slot: number, value: number) {
@@ -250,7 +337,16 @@ class Stage {
 
     const xerox = this.xeroxFrames > 0 ? 1 : 0;
     if (this.xeroxFrames > 0) this.xeroxFrames--;
-    d.queue.writeBuffer(this.presentUniform, 0, new Float32Array([xerox, 0, 0, 0]));
+    const f = this.presentF;
+    const [, H] = this.size;
+    f[0] = xerox;
+    f[1] = HOUSE.ramp;
+    f[2] = HOUSE.levels;
+    f[3] = H < 300 ? 1 : HOUSE.dither; // thumbnails: finer dither
+    f[4] = this.stamp ? 1 : 0;
+    f[5] = this.stampCount;
+    f[6] = Math.max(8, Math.round(H * 0.022));
+    d.queue.writeBuffer(this.presentUniform, 0, this.presentData);
     const displayIndex = OUTPUTS.indexOf(eff.compiled.display);
     const present = enc.beginRenderPass({
       colorAttachments: [{ view: this.context.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1] }],
@@ -350,6 +446,7 @@ class Stage {
           { binding: 0, resource: { buffer: this.presentUniform } },
           { binding: 1, resource: this.e.sampler },
           { binding: 2, resource: this.outputs[outputIndex][parity].createView() },
+          { binding: 3, resource: this.e.stampFont.createView() },
         ],
       });
       this.presentGroups.set(key, group);
@@ -367,6 +464,8 @@ export class Engine {
   readonly dummy: GPUTexture;
   /** LETRA's glyph atlas (see glyphs.ts). */
   readonly glyphs: GPUTexture;
+  /** The stamp's Doto alphabet (see glyphs.ts). */
+  readonly stampFont: GPUTexture;
   readonly presentPipeline: GPURenderPipeline;
   readonly main: Stage;
 
@@ -393,8 +492,9 @@ export class Engine {
 
   onError: (message: string) => void = () => {};
 
-  private constructor(device: GPUDevice, canvas: OffscreenCanvas, glyphs: GPUTexture) {
+  private constructor(device: GPUDevice, canvas: OffscreenCanvas, glyphs: GPUTexture, stampFont: GPUTexture) {
     this.glyphs = glyphs;
+    this.stampFont = stampFont;
     this.device = device;
     this.format = navigator.gpu.getPreferredCanvasFormat();
     this.sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
@@ -467,21 +567,22 @@ export class Engine {
     const requiredFeatures: GPUFeatureName[] = [];
     if (adapter.features.has('timestamp-query')) requiredFeatures.push('timestamp-query');
     const device = await adapter.requestDevice({ requiredFeatures });
-    const engine = new Engine(device, canvas, await Engine.glyphTexture(device));
+    const [glyphs, stampFont] = await Promise.all([Engine.atlasTexture(device, buildGlyphAtlas), Engine.atlasTexture(device, buildStampAtlas)]);
+    const engine = new Engine(device, canvas, glyphs, stampFont);
     device.lost.then((info) => engine.onError(`GPU PERDIDA: ${info.message}`));
     device.addEventListener('uncapturederror', (e) => engine.onError((e as GPUUncapturedErrorEvent).error.message));
     return engine;
   }
 
-  private static async glyphTexture(device: GPUDevice): Promise<GPUTexture> {
+  private static async atlasTexture(device: GPUDevice, build: () => Promise<OffscreenCanvas>): Promise<GPUTexture> {
     const usage = GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT;
     try {
-      const atlas = await buildGlyphAtlas();
+      const atlas = await build();
       const tex = device.createTexture({ size: [atlas.width, atlas.height], format: 'rgba8unorm', usage });
       device.queue.copyExternalImageToTexture({ source: atlas }, { texture: tex }, [atlas.width, atlas.height]);
       return tex;
     } catch {
-      // no atlas: LETRA draws blank cells instead of failing the whole engine
+      // no atlas: LETRA / the stamp draw nothing instead of failing the whole engine
       return device.createTexture({ size: [1, 1], format: 'rgba8unorm', usage });
     }
   }
