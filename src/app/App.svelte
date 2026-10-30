@@ -3,13 +3,26 @@
   import EffectStrip from './EffectStrip.svelte';
   import Shutter from './Shutter.svelte';
   import { PRESETS } from '../presets';
-  import { cameraSupported, openCamera, type CameraFeed, type Facing } from '../io/camera';
+  import { cameraSupported, MAX_ZOOM, openCamera, type CameraFeed, type Facing } from '../io/camera';
+  import { Gestures } from './gestures';
   import type { FromWorker, MacroInfo, ToWorker } from '../render/protocol';
   import type { EngineStats } from '../gpu/engine';
 
   let canvas: HTMLCanvasElement;
   let worker: Worker;
   const send = (m: ToWorker, transfer: Transferable[] = []) => worker.postMessage(m, transfer);
+
+  // Thumbnail canvases arrive before the worker is ready; hand them over once it is.
+  let workerReady = false;
+  const pendingThumbs: { id: string; canvas: OffscreenCanvas }[] = [];
+  function sendThumb(id: string, thumb: OffscreenCanvas) {
+    const graph = PRESETS.find((p) => p.id === id);
+    if (graph) send({ type: 'thumb', id, canvas: thumb, graph }, [thumb]);
+  }
+  function queueThumb(id: string, thumb: OffscreenCanvas) {
+    if (workerReady) sendThumb(id, thumb);
+    else pendingThumbs.push({ id, canvas: thumb });
+  }
 
   // effect
   let effectId = $state(PRESETS[0].id);
@@ -33,8 +46,14 @@
   // status
   let fatal = $state<string | null>(null);
   let notice = $state<string | null>(null);
-  let dragging = $state(false);
   let hud = $state(false);
+
+  // gestures on the viewfinder
+  let gesture = $state<'none' | 'drag' | 'pinch'>('none');
+  let zoom = $state(1);
+  let defaults: number[] = [];
+  let pinchFrom = 1;
+  let twistFrom = 0;
   let stats = $state<{ fps: number; stats: EngineStats } | null>(null);
 
   const timers: Record<string, ReturnType<typeof setTimeout>> = {};
@@ -69,8 +88,9 @@
     const m = e.data;
     switch (m.type) {
       case 'ready':
+        workerReady = true;
         selectEffect(effectId, false);
-        send({ type: 'warm', graphs: PRESETS });
+        for (const t of pendingThumbs.splice(0)) sendThumb(t.id, t.canvas);
         startCamera();
         break;
       case 'error':
@@ -79,7 +99,10 @@
         else say(m.message.split('\n')[0].slice(0, 60).toUpperCase());
         break;
       case 'effect':
-        if (m.id === effectId) macros = m.macros;
+        if (m.id === effectId) {
+          macros = m.macros;
+          defaults = m.macros.map((x) => x.value);
+        }
         break;
       case 'photo':
         keep(m.blob, nextName('jpg'), false);
@@ -152,6 +175,7 @@
     try {
       feed = await openCamera(facing);
       send({ type: 'frames', stream: feed.stream, mirror: facing === 'user' }, [feed.stream]);
+      applyZoom(1);
     } catch (e) {
       console.warn('camera', e);
       send({ type: 'testSource' });
@@ -165,32 +189,54 @@
     startCamera();
   }
 
-  // XY pad on the viewfinder: x → macro A, inverted y → macro B
-  function setXY(e: PointerEvent) {
-    const r = canvas.getBoundingClientRect();
-    const xy = [(e.clientX - r.left) / r.width, 1 - (e.clientY - r.top) / r.height];
-    macros = macros.map((m, i) => {
-      if (i > 1) return m;
-      const t = Math.min(1, Math.max(0, xy[i]));
-      const value = m.min + (m.max - m.min) * t;
-      send({ type: 'param', slot: m.slot, value });
-      return { ...m, value };
-    });
+  function setMacro(i: number, value: number) {
+    const m = macros[i];
+    if (!m) return;
+    const lo = Math.min(m.min, m.max);
+    const hi = Math.max(m.min, m.max);
+    const v = Math.min(hi, Math.max(lo, value));
+    macros[i] = { ...m, value: v };
+    send({ type: 'param', slot: m.slot, value: v });
   }
 
-  function padDown(e: PointerEvent) {
-    if (!macros.length) return;
-    try {
-      canvas.setPointerCapture(e.pointerId);
-    } catch {}
-    dragging = true;
-    setXY(e);
+  function applyZoom(total: number) {
+    zoom = Math.min(MAX_ZOOM, Math.max(1, total));
+    send({ type: 'zoom', digital: feed ? feed.zoom(zoom) : zoom });
   }
-  function padMove(e: PointerEvent) {
-    if (dragging) setXY(e);
-  }
-  function padUp() {
-    dragging = false;
+
+  function attachGestures(el: HTMLElement) {
+    return new Gestures(el, {
+      onStart(kind) {
+        gesture = kind;
+        pinchFrom = zoom;
+        twistFrom = macros[2]?.value ?? 0;
+      },
+      onDrag(x, y) {
+        // macros A/B follow the finger: x → A, inverted y → B
+        [x, y].forEach((t, i) => {
+          const m = macros[i];
+          if (m) setMacro(i, m.min + (m.max - m.min) * t);
+        });
+      },
+      onPinch(scale) {
+        applyZoom(pinchFrom * scale);
+      },
+      onTwist(radians) {
+        const m = macros[2];
+        if (m) setMacro(2, twistFrom + (radians / Math.PI) * (m.max - m.min));
+      },
+      onDoubleTap() {
+        defaults.forEach((v, i) => setMacro(i, v));
+        applyZoom(1);
+        buzz(8);
+      },
+      onEnd() {
+        gesture = 'none';
+      },
+      onTouch(state) {
+        send({ type: 'touch', state: { ...state } });
+      },
+    });
   }
 
   // Fullscreen and wake lock need a user gesture: take the first one.
@@ -242,7 +288,9 @@
 
     const ro = new ResizeObserver(() => send({ type: 'resize', ...physicalSize() }));
     ro.observe(canvas);
+    const gestures = attachGestures(canvas);
     return () => {
+      gestures.destroy();
       ro.disconnect();
       feed?.stop();
       worker.terminate();
@@ -258,11 +306,7 @@
   <canvas
     bind:this={canvas}
     class="cam"
-    aria-label="Visor"
-    onpointerdown={padDown}
-    onpointermove={padMove}
-    onpointerup={padUp}
-    onpointercancel={padUp}
+    aria-label="Visor: arrastra para las macros, pellizca para el zoom, gira con dos dedos, doble toque para restablecer"
   ></canvas>
 
   <div class="tag tl label"><span class="muted">FX-{active.code}</span><span>{active.name}</span></div>
@@ -278,7 +322,7 @@
   {#if stamp}<div class="stamp">{stamp}</div>{/if}
   {#if notice}<div class="notice label">{notice}</div>{/if}
 
-  {#if dragging && macros.length}
+  {#if gesture === 'drag' && macros.length}
     <div class="readout">
       {#each macros.slice(0, 2) as m, i (m.slot)}
         <div class="cell" class:a={i === 0}>
@@ -286,6 +330,19 @@
           <span class="v">{fmt(m.value)}</span>
         </div>
       {/each}
+    </div>
+  {:else if gesture === 'pinch'}
+    <div class="readout">
+      <div class="cell a">
+        <span class="k label">ZOOM</span>
+        <span class="v">{zoom.toFixed(1)}×</span>
+      </div>
+      {#if macros[2]}
+        <div class="cell">
+          <span class="k label">C / {macros[2].label}</span>
+          <span class="v">{fmt(macros[2].value)}</span>
+        </div>
+      {/if}
     </div>
   {/if}
 
@@ -299,7 +356,7 @@
   {/if}
 
   <div class="deck">
-    <EffectStrip effects={PRESETS} selected={effectId} onselect={(id) => selectEffect(id)} />
+    <EffectStrip effects={PRESETS} selected={effectId} onselect={(id) => selectEffect(id)} onthumb={queueThumb} />
     <div class="row">
       <button class="key label" type="button" onclick={flip} aria-label="Cambiar cámara">F/T</button>
       <Shutter
@@ -326,6 +383,8 @@
     inset: 0;
     background: var(--viewfinder);
     overflow: hidden;
+    /* the browser must never pinch-zoom or scroll the app: gestures are ours */
+    touch-action: none;
   }
   .cam {
     position: absolute;
@@ -378,12 +437,12 @@
     top: calc(52px + env(safe-area-inset-top, 0px));
     margin: 0;
     font-family: var(--font-display);
-    font-size: 40px;
+    font-size: 48px;
     line-height: 0.95;
     text-transform: uppercase;
     color: var(--ink);
-    background: var(--viewfinder);
-    padding: var(--space-1) var(--space-2);
+    /* straight on the image, no plate: difference keeps it legible on any colour */
+    mix-blend-mode: difference;
     pointer-events: none;
   }
 

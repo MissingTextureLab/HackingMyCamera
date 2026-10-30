@@ -39,15 +39,18 @@ sh scripts/mirror.sh <dir outside Documents>   # copies sources, installs once
 ## Layout
 
 ```
-src/graph/     types.ts (EffectGraph JSON), compile.ts (graph → fused WGSL per output buffer)
-src/ops/       registry.ts: every op as a WGSL snippet + params; PRELUDE helpers, Citrink ramp
-src/dsl/       chainable Hydra-style builder → EffectGraph (pure, no GPU)
+src/graph/     types.ts (EffectGraph JSON, mods), compile.ts (graph → ordered passes: fused WGSL,
+               materialized only where a filter reads neighbours), validate.ts (JSON → checked graph)
+src/ops/       registry.ts: every op as a WGSL snippet + params; filters as pass lists; PRELUDE helpers, Citrink ramp
+src/dsl/       chainable Hydra-style builder → EffectGraph (pure, no GPU); m.macro / m.mod
+src/signals/   LFO + touch sources, mapped onto params every frame (runs in the worker)
 src/presets/   gallery effects written with the DSL
-src/gpu/       engine.ts: WebGPU runtime (buffers o0–o3 ping-pong rgba16float, present + xerox pass, test card, timestamp queries)
-src/render/    worker.ts (owns GPU, canvas, camera frames, recorder), protocol.ts (messages)
-src/io/        camera.ts: getUserMedia → MediaStreamTrackProcessor → transferred stream
-src/capture/   recorder.ts: Mediabunny CanvasSource → mp4 (video only for now)
-src/app/       Svelte 5 UI (App, Shutter, EffectStrip)
+src/gpu/       engine.ts: Engine (device, pipelines, camera texture) + Stage per surface
+               (viewfinder, each live thumbnail): o0–o3 ping-pong, temps, present + xerox pass
+src/render/    worker.ts (owns GPU, canvases, camera frames, recorder, signals), protocol.ts (messages)
+src/io/        camera.ts: getUserMedia → MediaStreamTrackProcessor → transferred stream; hardware zoom
+src/capture/   recorder.ts: Mediabunny CanvasSource → mp4 (video only)
+src/app/       Svelte 5 UI (App, Shutter, EffectStrip) and gestures.ts (drag / pinch / twist / double tap)
 ```
 
 ## Engine rules
@@ -55,6 +58,10 @@ src/app/       Svelte 5 UI (App, Shutter, EffectStrip)
 - Ops follow the kind signatures documented at the top of `src/ops/registry.ts`; the compiler depends on them.
 - Param values are uniforms (`P[]`), so changing values never recompiles; only structure does. Structural params (buffer index) are baked.
 - Buffer reads (`o(i)`) always see the previous frame.
+- Filters (blur, edge, sharpen, displace, bloom) read neighbours, so their inputs are rendered to temp textures; keep chains fused otherwise. A pass reads at most 4 temps.
+- Effects from outside the code (files, editor) go through `validateEffect`; the worker validates every graph it receives.
+- A param is either a macro (gestures) or a mod (signals), never both.
+- No microphone: the user doesn't want audio input or audio in recordings.
 - Canvas reads for photo/recording must happen in the same task right after `queue.submit` (see `loop` in the worker).
 - Render size: long side capped at 1920, even dimensions (H.264).
 - Never copy code from hydra-synth (AGPL); names and ideas only.

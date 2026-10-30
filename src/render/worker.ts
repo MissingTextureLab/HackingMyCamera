@@ -3,6 +3,8 @@
 
 import { Engine } from '../gpu/engine';
 import { Recorder } from '../capture/recorder';
+import { Signals } from '../signals';
+import { validateEffect } from '../graph/validate';
 import type { FromWorker, MacroInfo, ToWorker } from './protocol';
 
 interface WorkerScope {
@@ -16,6 +18,8 @@ const fail = (e: unknown) => post({ type: 'error', message: e instanceof Error ?
 
 let engine: Engine | null = null;
 const recorder = new Recorder();
+const signals = new Signals();
+const writeParam = (slot: number, value: number) => engine!.setParam(slot, value);
 let source: 'camera' | 'test' = 'test';
 let reader: ReadableStreamDefaultReader<VideoFrame> | null = null;
 let pendingResize: [number, number] | null = null;
@@ -64,6 +68,7 @@ function loop(now: number) {
     pendingResize = null;
   }
   if (source === 'test') engine.renderTestCard(now / 1000);
+  signals.update(now / 1000, dt, writeParam);
   engine.render(now / 1000, dt);
 
   // Both read the canvas, so they must run in this task, right after submit.
@@ -122,15 +127,24 @@ scope.addEventListener('message', async (e) => {
         pendingResize = fit(msg.width, msg.height);
         break;
       case 'effect': {
-        const compiled = await engine!.setEffect(msg.graph);
-        post({ type: 'effect', id: msg.graph.id, macros: macrosOf(compiled) });
+        // graphs may come from files or the editor: never trust their shape
+        const graph = validateEffect(msg.graph);
+        const compiled = await engine!.setEffect(graph);
+        signals.bind(graph.mods, compiled.slots, compiled.values);
+        post({ type: 'effect', id: graph.id, macros: macrosOf(compiled) });
         break;
       }
-      case 'warm':
-        for (const g of msg.graphs) await engine!.warm(g).catch((err) => fail(`${g.id}: ${err.message}`));
-        break;
       case 'param':
         engine?.setParam(msg.slot, msg.value);
+        break;
+      case 'zoom':
+        engine?.setZoom(msg.digital);
+        break;
+      case 'touch':
+        signals.setTouch(msg.state);
+        break;
+      case 'thumb':
+        await engine!.addThumb(msg.id, msg.canvas, validateEffect(msg.graph));
         break;
       case 'photo':
         photoRequested = true;

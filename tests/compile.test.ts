@@ -34,8 +34,48 @@ describe('compileEffect', () => {
       cam().out(1);
     });
     const c = compileEffect(g);
-    expect(c.passes.map((p) => p.output)).toEqual(['o0', 'o1']);
+    expect(c.passes.map((p) => p.target)).toEqual([
+      { kind: 'output', id: 'o0' },
+      { kind: 'output', id: 'o1' },
+    ]);
     expect(c.passes[0].wgsl).toContain('textureSampleLevel(t_o1, samp, uv, 0.0)');
+  });
+
+  it('materializes only what a filter reads', () => {
+    const g = effect({ id: 'f', code: '0', name: 'F' }, () => {
+      cam().contrast(1.2).blur(4).hue(0.1).out(0);
+    });
+    const c = compileEffect(g);
+    // contrast chain → temp, blur H → temp, blur V → temp, hue + output
+    expect(c.passes).toHaveLength(4);
+    const [pre, h, v, out] = c.passes;
+    expect(pre.target.kind).toBe('temp');
+    expect(pre.wgsl).toContain('fn op_contrast');
+    expect(h.inputs).toEqual([pre.target.id]);
+    expect(v.inputs).toEqual([h.target.id]);
+    expect(out.target).toEqual({ kind: 'output', id: 'o0' });
+    expect(out.inputs).toEqual([v.target.id]);
+    expect(out.wgsl).toContain('fn op_hue');
+    expect(out.wgsl).not.toContain('fn op_contrast');
+    expect(c.temps.map((t) => t.id)).toEqual([pre.target.id, h.target.id, v.target.id]);
+  });
+
+  it('runs bloom at half resolution and feeds the original to its last pass', () => {
+    const g = effect({ id: 'b', code: '0', name: 'B' }, () => cam().bloom().out(0));
+    const c = compileEffect(g);
+    const half = c.temps.filter((t) => t.scale === 0.5);
+    expect(half).toHaveLength(3);
+    const last = c.passes[c.passes.length - 2]; // before the output copy
+    expect(last.inputs).toHaveLength(2);
+    expect(last.inputs[0]).toBe(c.passes[0].target.id); // the camera, materialized
+  });
+
+  it('gives displace both its inputs as textures', () => {
+    const g = effect({ id: 'd', code: '0', name: 'D' }, () => cam().displace(noise(3), 2).out(0));
+    const c = compileEffect(g);
+    const disp = c.passes.find((p) => p.wgsl.includes('fn PASS') && p.inputs.length === 2)!;
+    expect(disp).toBeDefined();
+    expect(c.passes.filter((p) => p.target.kind === 'temp')).toHaveLength(3);
   });
 
   it('includes snippet dependencies', () => {
@@ -47,7 +87,7 @@ describe('compileEffect', () => {
 
   it('rejects cycles, unknown ops and wrong arity', () => {
     const base = (nodes: EffectGraph['nodes']): EffectGraph => ({
-      id: 'x', code: '0', name: 'X', version: 1, nodes, outputs: { o0: 'a' }, display: 'o0', macros: [],
+      id: 'x', code: '0', name: 'X', version: 1, nodes, outputs: { o0: 'a' }, display: 'o0', macros: [], mods: [],
     });
     expect(() => compileEffect(base({ a: { op: 'hue', in: ['b'] }, b: { op: 'hue', in: ['a'] } }))).toThrow(/cycle/);
     expect(() => compileEffect(base({ a: { op: 'nope' } }))).toThrow(/unknown op/);

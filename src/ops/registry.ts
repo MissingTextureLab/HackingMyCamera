@@ -8,6 +8,10 @@
 //   combine       fn op_<name>(a: vec4f, b: vec4f, ...params) -> vec4f
 //   combineCoord  fn op_<name>(uv: vec2f, c: vec4f, ...params) -> vec2f
 //   texture       no snippet: the compiler samples a texture directly
+//   filter        needs its inputs as textures (neighbourhood reads). Runs as
+//                 its own pass(es); each pass defines
+//                 fn PASS(uv: vec2f, ...params) -> vec4f
+//                 reading its inputs as T0, T1 (see FILTER_PRELUDE).
 //
 // Module-scope names available to snippets: G (globals: time, dt, res, camFit),
 // FC (fragment coordinate in pixels), PI, TAU, hash3, vnoise, luma,
@@ -15,7 +19,15 @@
 //
 // No code here is taken from hydra-synth (AGPL); only op names and ideas.
 
-export type OpKind = 'source' | 'coord' | 'color' | 'combine' | 'combineCoord' | 'texture';
+export type OpKind = 'source' | 'coord' | 'color' | 'combine' | 'combineCoord' | 'texture' | 'filter';
+
+export interface FilterPass {
+  /** What T0, T1… are: the op's inputs ('in0', 'in1') or earlier passes ('p0'…). */
+  inputs: string[];
+  /** Resolution relative to the output. */
+  scale?: number;
+  wgsl: string;
+}
 
 export interface ParamDef {
   name: string;
@@ -29,6 +41,26 @@ export interface OpDef {
   kind: OpKind;
   params: ParamDef[];
   wgsl?: string;
+  /** filter only: number of image inputs */
+  inputs?: number;
+  /** filter only: the passes, in order; the last one is the op's result */
+  passes?: FilterPass[];
+}
+
+/** Number of inputs a node of this op must have. */
+export function arity(def: OpDef): number {
+  switch (def.kind) {
+    case 'texture':
+    case 'source':
+      return 0;
+    case 'combine':
+    case 'combineCoord':
+      return 2;
+    case 'filter':
+      return def.inputs ?? 1;
+    default:
+      return 1;
+  }
 }
 
 const p = (name: string, def: number, structural = false): ParamDef => ({ name, default: def, structural });
@@ -363,6 +395,393 @@ fn op_modulateRotate(uv: vec2f, c: vec4f, multiple: f32, offset: f32) -> vec2f {
   return op_rotate(uv, offset + c.r * multiple, 0.0);
 }`,
 });
+
+/* ---------- filters (neighbourhood; each runs as its own pass) ---------- */
+
+// Blur runs at half resolution: a quarter of the pixels, and a blurred image
+// loses nothing. `radius` stays in output pixels (half-res texels are 2 px).
+const BLUR_H = /* wgsl */ `
+fn PASS(uv: vec2f, radius: f32) -> vec4f {
+  let px = 1.0 / vec2f(textureDimensions(T0));
+  return gauss9(T0, uv, vec2f(px.x * radius * 0.125, 0.0));
+}`;
+const BLUR_V = /* wgsl */ `
+fn PASS(uv: vec2f, radius: f32) -> vec4f {
+  let px = 1.0 / vec2f(textureDimensions(T0));
+  return gauss9(T0, uv, vec2f(0.0, px.y * radius * 0.125));
+}`;
+
+def({
+  name: 'blur',
+  kind: 'filter',
+  params: [p('radius', 6)],
+  passes: [
+    { inputs: ['in0'], scale: 0.5, wgsl: BLUR_H },
+    { inputs: ['p0'], scale: 0.5, wgsl: BLUR_V },
+  ],
+});
+
+def({
+  name: 'edge',
+  kind: 'filter',
+  params: [p('strength', 1.5)],
+  passes: [
+    {
+      inputs: ['in0'],
+      wgsl: /* wgsl */ `
+fn PASS(uv: vec2f, strength: f32) -> vec4f {
+  let px = 1.0 / vec2f(textureDimensions(T0));
+  let tl = lumaAt(T0, uv + px * vec2f(-1.0, -1.0));
+  let tc = lumaAt(T0, uv + px * vec2f(0.0, -1.0));
+  let tr = lumaAt(T0, uv + px * vec2f(1.0, -1.0));
+  let ml = lumaAt(T0, uv + px * vec2f(-1.0, 0.0));
+  let mr = lumaAt(T0, uv + px * vec2f(1.0, 0.0));
+  let bl = lumaAt(T0, uv + px * vec2f(-1.0, 1.0));
+  let bc = lumaAt(T0, uv + px * vec2f(0.0, 1.0));
+  let br = lumaAt(T0, uv + px * vec2f(1.0, 1.0));
+  let gx = (tr + 2.0 * mr + br) - (tl + 2.0 * ml + bl);
+  let gy = (bl + 2.0 * bc + br) - (tl + 2.0 * tc + tr);
+  return vec4f(vec3f(clamp(length(vec2f(gx, gy)) * strength, 0.0, 1.0)), 1.0);
+}`,
+    },
+  ],
+});
+
+def({
+  name: 'sharpen',
+  kind: 'filter',
+  params: [p('amount', 1)],
+  passes: [
+    {
+      inputs: ['in0'],
+      wgsl: /* wgsl */ `
+fn PASS(uv: vec2f, amount: f32) -> vec4f {
+  let px = 1.0 / vec2f(textureDimensions(T0));
+  let c = textureSampleLevel(T0, samp, uv, 0.0);
+  let n = textureSampleLevel(T0, samp, uv + vec2f(0.0, -px.y), 0.0)
+        + textureSampleLevel(T0, samp, uv + vec2f(0.0, px.y), 0.0)
+        + textureSampleLevel(T0, samp, uv + vec2f(-px.x, 0.0), 0.0)
+        + textureSampleLevel(T0, samp, uv + vec2f(px.x, 0.0), 0.0);
+  return vec4f(c.rgb + (c.rgb * 4.0 - n.rgb) * amount, c.a);
+}`,
+    },
+  ],
+});
+
+// TouchDesigner-style Displace: the second input is a height map; the image
+// slides along the map's luminance gradient.
+def({
+  name: 'displace',
+  kind: 'filter',
+  inputs: 2,
+  params: [p('amount', 1)],
+  passes: [
+    {
+      inputs: ['in0', 'in1'],
+      wgsl: /* wgsl */ `
+fn PASS(uv: vec2f, amount: f32) -> vec4f {
+  let px = 2.0 / vec2f(textureDimensions(T1));
+  let g = vec2f(
+    lumaAt(T1, uv + vec2f(px.x, 0.0)) - lumaAt(T1, uv - vec2f(px.x, 0.0)),
+    lumaAt(T1, uv + vec2f(0.0, px.y)) - lumaAt(T1, uv - vec2f(0.0, px.y))) / (2.0 * px);
+  return textureSampleLevel(T0, samp, uv - g * amount * 0.01, 0.0);
+}`,
+    },
+  ],
+});
+
+// Bright pass + half-resolution separable blur, added back on top.
+def({
+  name: 'bloom',
+  kind: 'filter',
+  params: [p('threshold', 0.6), p('intensity', 1.2), p('radius', 8)],
+  passes: [
+    {
+      inputs: ['in0'],
+      scale: 0.5,
+      wgsl: /* wgsl */ `
+fn PASS(uv: vec2f, threshold: f32, intensity: f32, radius: f32) -> vec4f {
+  let c = textureSampleLevel(T0, samp, uv, 0.0);
+  return vec4f(c.rgb * smoothstep(threshold, threshold + 0.15, luma(c.rgb)), 1.0);
+}`,
+    },
+    {
+      inputs: ['p0'],
+      scale: 0.5,
+      wgsl: /* wgsl */ `
+fn PASS(uv: vec2f, threshold: f32, intensity: f32, radius: f32) -> vec4f {
+  let px = 1.0 / vec2f(textureDimensions(T0));
+  return gauss9(T0, uv, vec2f(px.x * radius * 0.25, 0.0));
+}`,
+    },
+    {
+      inputs: ['p1'],
+      scale: 0.5,
+      wgsl: /* wgsl */ `
+fn PASS(uv: vec2f, threshold: f32, intensity: f32, radius: f32) -> vec4f {
+  let px = 1.0 / vec2f(textureDimensions(T0));
+  return gauss9(T0, uv, vec2f(0.0, px.y * radius * 0.25));
+}`,
+    },
+    {
+      inputs: ['in0', 'p2'],
+      wgsl: /* wgsl */ `
+fn PASS(uv: vec2f, threshold: f32, intensity: f32, radius: f32) -> vec4f {
+  let c = textureSampleLevel(T0, samp, uv, 0.0);
+  let b = textureSampleLevel(T1, samp, uv, 0.0);
+  return vec4f(c.rgb + b.rgb * intensity, c.a);
+}`,
+    },
+  ],
+});
+
+// Print: AM halftone in two Citrink inks on white paper. Each plate is a grid of
+// dots at its own screen angle; the second plate is out of register by
+// `offset` pixels, like a risograph.
+def({
+  name: 'riso',
+  kind: 'filter',
+  params: [p('offset', 3), p('cell', 7), p('gain', 1.1)],
+  passes: [
+    {
+      inputs: ['in0'],
+      wgsl: /* wgsl */ `
+fn plate(pix: vec2f, cell: f32, angle: f32, gain: f32) -> f32 {
+  let res = vec2f(textureDimensions(T0));
+  let c = cos(angle);
+  let s = sin(angle);
+  let r = vec2f(c * pix.x + s * pix.y, -s * pix.x + c * pix.y) / cell;
+  let id = floor(r) + 0.5;
+  let cp = id * cell;
+  let centre = vec2f(c * cp.x - s * cp.y, s * cp.x + c * cp.y);
+  let ink = clamp((1.0 - lumaAt(T0, centre / res)) * gain, 0.0, 1.0);
+  let radius = sqrt(ink) * 0.62;
+  return 1.0 - smoothstep(radius - 0.06, radius + 0.06, length(fract(r) - 0.5));
+}
+
+fn PASS(uv: vec2f, offset: f32, cell: f32, gain: f32) -> vec4f {
+  let cs = max(cell, 2.0);
+  let a = plate(FC, cs, 0.2618, gain);
+  let b = plate(FC + vec2f(offset, offset * 0.6), cs, 1.309, gain * 0.85);
+  var paper = vec3f(1.0);
+  paper *= mix(vec3f(1.0), CITRINK[2], a);
+  paper *= mix(vec3f(1.0), CITRINK[5], b);
+  return vec4f(paper, 1.0);
+}`,
+    },
+  ],
+});
+
+// Time: slit-scan. Below `line` the live image; above it, history scrolls up
+// `speed` pixels per frame, fed by the live row at the line. in0 = the
+// previous frame (o0), in1 = the camera.
+def({
+  name: 'slit',
+  kind: 'filter',
+  inputs: 2,
+  params: [p('speed', 2), p('line', 0.72)],
+  passes: [
+    {
+      inputs: ['in0', 'in1'],
+      wgsl: /* wgsl */ `
+fn PASS(uv: vec2f, speed: f32, line: f32) -> vec4f {
+  if (uv.y >= line) {
+    return textureSampleLevel(T1, samp, uv, 0.0);
+  }
+  let px = 1.0 / vec2f(textureDimensions(T0));
+  return textureSampleLevel(T0, samp, uv + vec2f(0.0, max(speed, 0.0) * px.y), 0.0);
+}`,
+    },
+  ],
+});
+
+// Optics: barrel/pincushion distortion, radial chromatic aberration, vignette.
+def({
+  name: 'lens',
+  kind: 'filter',
+  params: [p('aberration', 1.2), p('barrel', 0.25), p('vignette', 0.6)],
+  passes: [
+    {
+      inputs: ['in0'],
+      wgsl: /* wgsl */ `
+fn PASS(uv: vec2f, aberration: f32, barrel: f32, vignette: f32) -> vec4f {
+  let asp = G.res.x / G.res.y;
+  var q = uv - 0.5;
+  q.x *= asp;
+  let r2 = dot(q, q);
+  let d = q * (1.0 + barrel * r2);
+  let ca = aberration * 0.03 * r2;
+  let uvR = vec2f(d.x * (1.0 + ca) / asp, d.y * (1.0 + ca)) + 0.5;
+  let uvG = vec2f(d.x / asp, d.y) + 0.5;
+  let uvB = vec2f(d.x * (1.0 - ca) / asp, d.y * (1.0 - ca)) + 0.5;
+  var col = vec3f(
+    textureSampleLevel(T0, samp, uvR, 0.0).r,
+    textureSampleLevel(T0, samp, uvG, 0.0).g,
+    textureSampleLevel(T0, samp, uvB, 0.0).b);
+  col *= 1.0 - vignette * smoothstep(0.15, 0.85, sqrt(r2));
+  return vec4f(col, 1.0);
+}`,
+    },
+  ],
+});
+
+// Type: the image as text. 5×5 glyphs ordered by ink density, lit with the
+// light end of the Citrink ramp on the darkest colour.
+const GLYPHS = [
+  '.....|.....|.....|.....|.....',
+  '.....|.....|.....|.....|..#..',
+  '.....|..#..|.....|..#..|.....',
+  '.....|.....|.###.|.....|.....',
+  '.....|.###.|.....|.###.|.....',
+  '.....|..#..|.###.|..#..|.....',
+  '.....|.#.#.|..#..|.#.#.|.....',
+  '.#.#.|#####|.#.#.|#####|.#.#.',
+  '##..#|##.#.|..#..|.#.##|#..##',
+  '.###.|#...#|#.###|#.##.|.####',
+].map((g) => parseInt(g.replace(/\|/g, '').replace(/#/g, '1').replace(/\./g, '0'), 2));
+
+def({
+  name: 'ascii',
+  kind: 'filter',
+  params: [p('cell', 10), p('contrast', 1.3)],
+  passes: [
+    {
+      inputs: ['in0'],
+      wgsl: /* wgsl */ `
+var<private> GLYPHS: array<u32, 10> = array<u32, 10>(${GLYPHS.map((g) => `${g}u`).join(', ')});
+
+fn PASS(uv: vec2f, cell: f32, contrast: f32) -> vec4f {
+  let cs = max(floor(cell), 4.0);
+  let res = vec2f(textureDimensions(T0));
+  let id = floor(FC / cs);
+  let c = textureSampleLevel(T0, samp, (id + 0.5) * cs / res, 0.0);
+  let l = clamp((luma(c.rgb) - 0.5) * contrast + 0.5, 0.0, 1.0);
+  let gi = u32(min(l * 10.0, 9.0));
+  let g = vec2u(floor(fract(FC / cs) * 6.0));
+  var on = 0.0;
+  if (g.x < 5u && g.y < 5u) {
+    on = f32((GLYPHS[gi] >> (24u - (g.y * 5u + g.x))) & 1u);
+  }
+  let ink = CITRINK[u32(clamp(3.0 + l * 4.99, 3.0, 7.0))];
+  return vec4f(mix(CITRINK[0], ink, on), 1.0);
+}`,
+    },
+  ],
+});
+
+// Tessellation: stained glass. Each Voronoi cell takes the colour at its seed,
+// with lead lines in the darkest Citrink colour. Seeds drift with `jitter`.
+def({
+  name: 'vitral',
+  kind: 'filter',
+  params: [p('scale', 14), p('border', 0.08), p('jitter', 0.6)],
+  passes: [
+    {
+      inputs: ['in0'],
+      wgsl: /* wgsl */ `
+fn PASS(uv: vec2f, scale: f32, border: f32, jitter: f32) -> vec4f {
+  let asp = G.res.x / G.res.y;
+  let sc = max(scale, 1.0);
+  let q = vec2f(uv.x * asp, uv.y) * sc;
+  let cell = floor(q);
+  let f = fract(q);
+  var d1 = 8.0;
+  var d2 = 8.0;
+  var seed = vec2f(0.0);
+  for (var y = -1; y <= 1; y++) {
+    for (var x = -1; x <= 1; x++) {
+      let g = vec2f(f32(x), f32(y));
+      let h = vec2f(hash3(vec3f(cell + g, 3.1)), hash3(vec3f(cell + g, 7.7)));
+      let pt = g + 0.5 + jitter * 0.45 * sin(G.time * 0.4 + TAU * h);
+      let d = length(pt - f);
+      if (d < d1) { d2 = d1; d1 = d; seed = cell + pt; }
+      else if (d < d2) { d2 = d; }
+    }
+  }
+  let c = textureSampleLevel(T0, samp, vec2f(seed.x / sc / asp, seed.y / sc), 0.0);
+  let glass = smoothstep(0.0, max(border, 0.001), d2 - d1);
+  return vec4f(mix(CITRINK[0], c.rgb, glass), 1.0);
+}`,
+    },
+  ],
+});
+
+// Signal: analogue video. Per-line jitter, a rolling tracking band with snow,
+// chroma bleed and scanlines.
+def({
+  name: 'vhs',
+  kind: 'filter',
+  params: [p('tracking', 0.5), p('noise', 0.6), p('bleed', 1.2)],
+  passes: [
+    {
+      inputs: ['in0'],
+      wgsl: /* wgsl */ `
+fn PASS(uv: vec2f, tracking: f32, noise: f32, bleed: f32) -> vec4f {
+  let px = 1.0 / vec2f(textureDimensions(T0));
+  let t = G.time;
+  let inBand = 1.0 - smoothstep(0.0, 0.05, abs(fract(uv.y - t * 0.11) - 0.5));
+  let row = floor(uv.y / px.y);
+  let jitter = (hash3(vec3f(row, floor(t * 30.0), 1.0)) - 0.5) * noise * 0.006;
+  let tear = inBand * tracking * 0.05 * (hash3(vec3f(floor(t * 12.0), row * 0.01, 3.0)) - 0.3);
+  let u = vec2f(uv.x + jitter + tear, uv.y);
+  let shift = vec2f(bleed * 3.0 * px.x, 0.0);
+  var col = vec3f(
+    textureSampleLevel(T0, samp, u + shift, 0.0).r,
+    textureSampleLevel(T0, samp, u, 0.0).g,
+    textureSampleLevel(T0, samp, u - shift, 0.0).b);
+  col *= 0.8 + 0.2 * step(0.5, fract(FC.y * 0.5));
+  let snow = hash3(vec3f(FC, floor(t * 60.0)));
+  col = mix(col, vec3f(snow), inBand * noise * 0.4);
+  return vec4f(col, 1.0);
+}`,
+    },
+  ],
+});
+
+// Glitch: pixel sorting, approximated. Inside every run of pixels brighter than
+// `threshold`, the first pixel of the run is dragged along `angle` for up to
+// `reach` pixels.
+def({
+  name: 'sort',
+  kind: 'filter',
+  params: [p('threshold', 0.55), p('reach', 220), p('angle', 0)],
+  passes: [
+    {
+      inputs: ['in0'],
+      wgsl: /* wgsl */ `
+fn PASS(uv: vec2f, threshold: f32, reach: f32, angle: f32) -> vec4f {
+  let c = textureSampleLevel(T0, samp, uv, 0.0);
+  if (luma(c.rgb) < threshold) { return c; }
+  let px = 1.0 / vec2f(textureDimensions(T0));
+  let dir = vec2f(sin(angle) * px.x, cos(angle) * px.y) * (reach / 24.0);
+  var src = uv;
+  for (var i = 1; i <= 24; i++) {
+    let q = uv - dir * f32(i);
+    if (luma(textureSampleLevel(T0, samp, q, 0.0).rgb) < threshold) { break; }
+    src = q;
+  }
+  return textureSampleLevel(T0, samp, src, 0.0);
+}`,
+    },
+  ],
+});
+
+/** Helpers for filter passes: separable 9-tap gaussian and luminance lookup. */
+export const FILTER_PRELUDE = /* wgsl */ `
+fn lumaAt(t: texture_2d<f32>, uv: vec2f) -> f32 {
+  return luma(textureSampleLevel(t, samp, uv, 0.0).rgb);
+}
+
+fn gauss9(t: texture_2d<f32>, uv: vec2f, step: vec2f) -> vec4f {
+  var w = array<f32, 5>(0.2270, 0.1945, 0.1216, 0.0540, 0.0162);
+  var acc = textureSampleLevel(t, samp, uv, 0.0) * w[0];
+  for (var i = 1; i < 5; i++) {
+    let o = step * f32(i);
+    acc += (textureSampleLevel(t, samp, uv + o, 0.0) + textureSampleLevel(t, samp, uv - o, 0.0)) * w[i];
+  }
+  return acc;
+}
+`;
 
 /** Ops whose snippet calls another op's snippet. */
 export const SNIPPET_DEPS: Record<string, string[]> = {

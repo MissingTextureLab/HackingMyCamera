@@ -5,22 +5,25 @@
     effects: EffectGraph[];
     selected: string;
     onselect: (id: string) => void;
+    /** Each thumbnail canvas, handed over once so the render worker can draw it live. */
+    onthumb: (id: string, canvas: OffscreenCanvas) => void;
   }
-  let { effects, selected, onselect }: Props = $props();
+  let { effects, selected, onselect, onthumb }: Props = $props();
 
-  // Static thumbnails in each effect's own Citrink ramp; live thumbnails come in H2.
-  const THUMBS: Record<string, string> = {
-    crudo: 'linear-gradient(180deg, #254d70 0 50%, #166e7a 50%)',
-    trama: 'repeating-conic-gradient(#b2d942 0 25%, #201533 0 50%) 0 0 / 6px 6px',
-    espejo: 'conic-gradient(from 45deg, #201533 0 25%, #166e7a 0 50%, #52c33f 0 75%, #fcf660 0)',
-    muda: 'repeating-linear-gradient(0deg, #201533 0 6px, #254d70 6px 12px, #166e7a 12px 18px, #b2d942 18px 24px)',
-  };
+  const SIZE = 48;
+
+  function live(canvas: HTMLCanvasElement, id: string) {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(SIZE * dpr);
+    canvas.height = Math.round(SIZE * dpr);
+    onthumb(id, canvas.transferControlToOffscreen());
+  }
 </script>
 
 <div class="strip" role="group" aria-label="Efectos">
   {#each effects as fx (fx.id)}
     <button class="fx" type="button" aria-pressed={fx.id === selected} onclick={() => onselect(fx.id)}>
-      <span class="thumb" style:background={THUMBS[fx.id]}></span>
+      <canvas class="thumb" use:live={fx.id} aria-hidden="true"></canvas>
       <span class="code label">{fx.code} {fx.name}</span>
     </button>
   {/each}
@@ -32,6 +35,10 @@
     gap: var(--space-2);
     overflow-x: auto;
     scrollbar-width: none;
+    touch-action: pan-x;
+    /* room for the selected outline */
+    padding: 4px 4px 0;
+    margin: -4px -4px 0;
   }
   .fx {
     flex: 0 0 auto;
@@ -49,6 +56,7 @@
     outline-offset: 4px;
   }
   .thumb {
+    display: block;
     width: 48px;
     height: 48px;
     border-radius: var(--radius-0);
@@ -60,6 +68,7 @@
     color: var(--ink);
     font-size: 9px;
     padding: 0 var(--space-1);
+    white-space: nowrap;
   }
   .fx[aria-pressed='true'] .thumb {
     outline: 2px solid var(--acid);

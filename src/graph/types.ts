@@ -17,6 +17,26 @@ export interface Macro {
   range: [number, number];
 }
 
+export type LfoShape = 'sine' | 'tri' | 'saw' | 'square' | 'random' | 'noise';
+export type TouchChannel = 'x' | 'y' | 'down' | 'vx' | 'vy' | 'count' | 'pinch';
+
+/** A signal normalized to 0…1 (see src/signals). */
+export type SignalSource =
+  | { kind: 'lfo'; shape: LfoShape; /** Hz */ rate: number; phase?: number }
+  | { kind: 'touch'; channel: TouchChannel };
+
+/** Drives one param from a signal every frame. */
+export interface Mod {
+  /** "<nodeId>.<param>" */
+  target: string;
+  source: SignalSource;
+  range: [number, number];
+  /** 0 = follow instantly … 0.99 = very slow (one-pole, per 60 fps frame). */
+  smooth?: number;
+  /** Round the result to multiples of this. */
+  quantize?: number;
+}
+
 export interface EffectGraph {
   id: string;
   /** Catalogue number shown in the UI: FX-<code>. */
@@ -28,4 +48,5 @@ export interface EffectGraph {
   outputs: Partial<Record<OutputId, string>>;
   display: OutputId;
   macros: Macro[];
+  mods: Mod[];
 }

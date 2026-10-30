@@ -2,7 +2,16 @@
 
 Cámara-instrumento: PWA a pantalla completa que pasa la imagen de la cámara por un motor de efectos propio con lenguaje visual de Hydra y TouchDesigner, hace fotos y graba vídeo.
 
-Estado (2026-10-29): **H1 implementado y verificado en escritorio** con la carta de ajuste: motor WebGPU en worker, DSL, compilador con fusión, 4 efectos, macros XY, foto JPEG y vídeo MP4 (WebCodecs + Mediabunny). Falta probarlo en el Android real (cámara de verdad, rotación, rendimiento). Pendiente de H1: audio en la grabación pasa a H2. Identidad visual decidida: `DESIGN.md`.
+Estado (2026-10-30):
+- **H1 hecho** y probado en el Android real: motor WebGPU en worker, DSL, compilador con fusión, foto JPEG y vídeo MP4 (WebCodecs + Mediabunny).
+- **H2 hecho**, verificado en escritorio con la carta de ajuste; pendiente de probar en el móvil:
+  - compilador multipaso y filtros de vecindad (blur, edge, sharpen, displace, bloom a media resolución);
+  - gestos (arrastre A/B, pellizco = zoom óptico + digital, giro = macro C, doble toque = reset);
+  - señales LFO y tacto;
+  - galería de 10 efectos con miniaturas en vivo, cada uno sobre una cuestión visual distinta (ver DESIGN.md, "La galería");
+  - formato JSON con validador.
+- **Fuera del alcance por decisión del usuario:** micrófono, tanto como señal como audio en la grabación.
+- Identidad visual: `DESIGN.md`.
 
 Entorno disponible: Node 22.20, npm 10.9, pnpm 10.20, git 2.49. Falta `cloudflared` (túnel HTTPS para probar en el móvil).
 

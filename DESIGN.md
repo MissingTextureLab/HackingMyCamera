@@ -8,7 +8,7 @@ Hacking My Camera es una cámara-instrumento para Android: la imagen pasa por un
 
 La interfaz es un aparato bien hecho: etiquetas pequeñas, códigos de catálogo, una retícula de 4 px, formas de hardware. Eso es lo fino y lo pulcro.
 
-Lo punk no es una textura pegada encima. **Es un comportamiento.** En reposo, todo está alineado y limpio. Cuando pasa algo (disparas, grabas, cambias de efecto, el audio pega fuerte), el aparato se ensucia un instante: las capas de color se desregistran, un sello entra torcido, un fotograma sale fotocopiado. Luego vuelve a su sitio.
+Lo punk no es una textura pegada encima. **Es un comportamiento.** En reposo, todo está alineado y limpio. Cuando pasa algo (disparas, grabas, cambias de efecto), el aparato se ensucia un instante: las capas de color se desregistran, un sello entra torcido, un fotograma sale fotocopiado. Luego vuelve a su sitio.
 
 > La limpieza es la norma. El sabotaje es el evento.
 
@@ -57,7 +57,9 @@ Reglas:
 - Rubik Glitch **nunca** baja de 30 px y nunca se usa para un texto que haya que leer con prisa.
 - Una etiqueta nunca pasa de 3 palabras.
 - Los números siempre van en Doto o con `tabular-nums`; nunca bailan al cambiar.
-- Los textos de Rubik Glitch van en mayúsculas. Antes de usar un carácter con tilde o eñe, se comprueba que el glifo existe en la fuente.
+- Los textos de Rubik Glitch van en mayúsculas. Antes de usar un carácter con tilde o eñe, se comprueba que el glifo existe en la fuente (la Ñ existe: `SEÑAL`).
+- El nombre de un efecto aparece grande en Rubik Glitch solo al seleccionarlo (`hold`, 600 ms) y desaparece. El resto del tiempo es un código en Martian Mono.
+- **Ese nombre va sin fondo**, directamente sobre la imagen, en blanco con fusión *diferencia* (`mix-blend-mode: difference`), así se lee sobre cualquier color. Es la única excepción a "solo Citrink": al invertir lo que tiene debajo, el texto puede tomar colores fuera de la paleta durante esos 600 ms.
 
 ## Forma y retícula
 
@@ -79,6 +81,26 @@ No hay librería de iconos. Cada control es una palabra en `label` o un pictogra
 - Nada se mueve en reposo. Ni pulsos, ni respiraciones, ni brillos.
 - Con `prefers-reduced-motion`, el sabotaje se reduce a un cambio de color sin desplazamiento.
 
+## Gestos
+
+La imagen es la superficie de control. Ningún gesto abre menús.
+
+| Gesto | Hace | Lectura en pantalla |
+|---|---|---|
+| Arrastrar con un dedo | Macro A (horizontal) y macro B (vertical), posición absoluta | `A / ETIQUETA` y `B / ETIQUETA` en Doto mientras dura |
+| Pellizcar | Zoom de 1× a 8×: óptico mientras el móvil lo permita, digital a partir de ahí | `ZOOM 2.4×` |
+| Girar con dos dedos | Macro C, relativa al valor de partida | `C / ETIQUETA` junto al zoom |
+| Doble toque | Restablece macros y zoom | — |
+| Deslizar la tira de efectos | Recorre la galería | — |
+| Tocar / mantener el obturador | Foto / grabar mientras se mantiene | Sello `GUARDADO` / `REC` |
+| Triple toque en la etiqueta de cámara | HUD de depuración | fps, ms de GPU, resolución, pases |
+
+Reglas:
+- El navegador nunca hace zoom ni scroll sobre la app; todos los gestos son nuestros (`touch-action: none`).
+- Levantar un dedo de un pellizco no salta a arrastre: hay que soltar y volver a tocar.
+- Las lecturas aparecen solo mientras dura el gesto y se van al soltar.
+- Cada efecto declara como mucho tres macros (A, B, C) con nombre propio en mayúsculas.
+
 ## Protocolo de sabotaje
 
 Las únicas rupturas permitidas, cada una ligada a un evento:
@@ -88,10 +110,28 @@ Las únicas rupturas permitidas, cada una ligada a un evento:
 | Foto | Las capas `flash` y `grass` de las etiquetas se desplazan `misreg` (3 px) en direcciones opuestas y vuelven; entra el sello `GUARDADO` | `hold` |
 | Empezar a grabar | Sello `REC` en `flash`, que se queda fijo arriba mientras graba | mientras dure |
 | Cambio de efecto | Un fotograma de fotocopia (la imagen a 1 bit, umbral duro) y el nombre del efecto en Rubik Glitch | `xerox-frame` + `hold` |
-| Pico de audio (si el efecto lo usa) | Las etiquetas se desregistran 1–3 px proporcional al pico | por frame |
 | Error o señal perdida | Pantalla de error en Rubik Glitch Pop sobre `flash`, torcida `stamp-angle` | hasta resolverse |
 
 El sello es el único elemento que puede girar fuera del ángulo recto, y solo `stamp-angle`. Lo dibuja el mismo motor que los efectos, así que hereda el efecto activo.
+
+## La galería: diez preguntas visuales
+
+Cada efecto trata una sola cuestión de lo visual. Si dos efectos responden a la misma pregunta, sobra uno.
+
+| Código | Nombre | Pregunta | Herramienta |
+|---|---|---|---|
+| FX-01 | LENTE | Óptica: qué le hace una lente barata a la luz | barril, aberración cromática, viñeta |
+| FX-07 | TRAMA | Imprenta: la imagen como puntos de tinta | semitono a dos tintas, segunda plancha desregistrada |
+| FX-12 | ESPEJO | Simetría | caleidoscopio que gira solo |
+| FX-14 | HALO | Luz | bloom a media resolución que respira |
+| FX-19 | MUDA | Memoria | feedback que fluye sobre un relieve de ruido (TouchDesigner) |
+| FX-22 | BARRIDO | Tiempo | slit-scan: cada fila es un instante anterior |
+| FX-31 | LETRA | Tipografía | la imagen escrita en caracteres |
+| FX-36 | VITRAL | Teselación | celdas de Voronoi con plomo |
+| FX-44 | SEÑAL | Vídeo analógico | tracking, nieve, sangrado de color, líneas; tocar la imagen mete interferencia |
+| FX-50 | ORDEN | Glitch digital | pixel sorting por umbral y ángulo |
+
+Cada efecto expone hasta tres macros con nombre propio (A, B, C; ver *Gestos*).
 
 ## Los efectos y la paleta
 
@@ -101,7 +141,7 @@ Los efectos de la galería también usan Citrink: sus rampas de color, dither y 
 
 Seca, técnica y un poco absurda, como un manual de servicio escrito por alguien que se ríe por dentro.
 
-- Los efectos tienen un **código de catálogo** y **una palabra**: `FX-07 TRAMA`, `FX-12 ESPEJO`, `FX-03 MUDA`. Palabras concretas en español, nunca adjetivos de marketing.
+- Los efectos tienen un **código de catálogo** y **una palabra**: `FX-07 TRAMA`, `FX-12 ESPEJO`, `FX-19 MUDA`. Palabras concretas en español, nunca adjetivos de marketing.
 - Las capturas se numeran como un catálogo de discos: `HMC-0423.jpg`, `HMC-0424.mp4`.
 - Los mensajes dicen qué pasa y qué hacer, sin disculpas ni exclamaciones: `SEÑAL PERDIDA. TOCA PARA REINTENTAR.`
 

@@ -7,7 +7,7 @@
 //     k.citrink(1).out(0);
 //   });
 
-import type { EffectGraph, Macro, NodeSpec, OutputId } from '../graph/types';
+import type { EffectGraph, LfoShape, Macro, Mod, NodeSpec, OutputId, SignalSource, TouchChannel } from '../graph/types';
 import { OPS } from '../ops/registry';
 
 type N = number | undefined;
@@ -16,6 +16,7 @@ class Builder {
   nodes: Record<string, NodeSpec> = {};
   outputs: Partial<Record<OutputId, string>> = {};
   macros: Macro[] = [];
+  mods: Mod[] = [];
   private count = 0;
 
   add(op: string, inputs: Chain[], args: N[]): Chain {
@@ -101,6 +102,23 @@ export class Chain {
     return this.bin('modulateRotate', other, [multiple, offset]);
   }
 
+  // neighbourhood filters (each one is its own pass)
+  blur(radius?: number) { return this.un('blur', [radius]); }
+  edge(strength?: number) { return this.un('edge', [strength]); }
+  sharpen(amount?: number) { return this.un('sharpen', [amount]); }
+  bloom(threshold?: number, intensity?: number, radius?: number) { return this.un('bloom', [threshold, intensity, radius]); }
+  /** Slides this image along the luminance gradient of `map` (TouchDesigner Displace). */
+  displace(map: Chain, amount?: number) { return this.bin('displace', map, [amount]); }
+  /** Two-ink halftone on paper, second plate out of register by `offset` px. */
+  riso(offset?: number, cell?: number, gain?: number) { return this.un('riso', [offset, cell, gain]); }
+  /** Slit-scan: this chain is the history (usually o(0)), `live` feeds it at `line`. */
+  slit(live: Chain, speed?: number, line?: number) { return this.bin('slit', live, [speed, line]); }
+  lens(aberration?: number, barrel?: number, vignette?: number) { return this.un('lens', [aberration, barrel, vignette]); }
+  ascii(cell?: number, contrast?: number) { return this.un('ascii', [cell, contrast]); }
+  vitral(scale?: number, border?: number, jitter?: number) { return this.un('vitral', [scale, border, jitter]); }
+  vhs(tracking?: number, noise?: number, bleed?: number) { return this.un('vhs', [tracking, noise, bleed]); }
+  sort(threshold?: number, reach?: number, angle?: number) { return this.un('sort', [threshold, reach, angle]); }
+
   out(index: 0 | 1 | 2 | 3 = 0) {
     this.builder.outputs[`o${index}`] = this.id;
   }
@@ -123,8 +141,16 @@ export interface EffectMeta {
   display?: OutputId;
 }
 
+// signal sources for m.mod(...)
+export const lfo = (shape: LfoShape, rate: number, phase?: number): SignalSource =>
+  phase === undefined ? { kind: 'lfo', shape, rate } : { kind: 'lfo', shape, rate, phase };
+export const touch = (channel: TouchChannel): SignalSource => ({ kind: 'touch', channel });
+
 export interface MacroApi {
+  /** Exposes a param to the gestures: 1st = drag x, 2nd = drag y, 3rd = two-finger twist. */
   macro(label: string, chain: Chain, param: string, min: number, max: number): void;
+  /** Drives a param from a signal every frame. Don't target a param that is also a macro. */
+  mod(chain: Chain, param: string, source: SignalSource, min: number, max: number, opts?: { smooth?: number; quantize?: number }): void;
 }
 
 export function effect(meta: EffectMeta, body: (m: MacroApi) => void): EffectGraph {
@@ -132,13 +158,21 @@ export function effect(meta: EffectMeta, body: (m: MacroApi) => void): EffectGra
   const b = new Builder();
   current = b;
   try {
+    const target = (chain: Chain, param: string) => {
+      const node = b.nodes[chain.id];
+      if (!node?.params || !(param in node.params)) throw new Error(`${chain.id} has no param "${param}"`);
+      return `${chain.id}.${param}`;
+    };
     body({
       macro(label, chain, param, min, max) {
-        const node = b.nodes[chain.id];
-        if (!node?.params || !(param in node.params)) throw new Error(`${chain.id} has no param "${param}"`);
-        b.macros.push({ label, target: `${chain.id}.${param}`, range: [min, max] });
+        b.macros.push({ label, target: target(chain, param), range: [min, max] });
+      },
+      mod(chain, param, source, min, max, opts = {}) {
+        b.mods.push({ target: target(chain, param), source, range: [min, max], ...opts });
       },
     });
+    const clash = b.mods.find((m) => b.macros.some((x) => x.target === m.target));
+    if (clash) throw new Error(`${clash.target} is both a macro and a mod`);
   } finally {
     current = null;
   }
@@ -153,5 +187,6 @@ export function effect(meta: EffectMeta, body: (m: MacroApi) => void): EffectGra
     outputs: b.outputs,
     display,
     macros: b.macros,
+    mods: b.mods,
   };
 }

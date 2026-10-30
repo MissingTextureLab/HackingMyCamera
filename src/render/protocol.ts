@@ -2,6 +2,7 @@
 
 import type { EffectGraph } from '../graph/types';
 import type { EngineStats } from '../gpu/engine';
+import type { TouchSnapshot } from '../signals';
 
 export type ToWorker =
   | { type: 'init'; canvas: OffscreenCanvas; width: number; height: number }
@@ -9,8 +10,10 @@ export type ToWorker =
   | { type: 'testSource' }
   | { type: 'resize'; width: number; height: number }
   | { type: 'effect'; graph: EffectGraph }
-  | { type: 'warm'; graphs: EffectGraph[] }
   | { type: 'param'; slot: number; value: number }
+  | { type: 'zoom'; digital: number }
+  | { type: 'touch'; state: TouchSnapshot }
+  | { type: 'thumb'; id: string; canvas: OffscreenCanvas; graph: EffectGraph }
   | { type: 'photo' }
   | { type: 'recStart' }
   | { type: 'recStop' };

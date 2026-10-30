@@ -1,23 +1,39 @@
-// EffectGraph → one fused WGSL fragment shader per written output buffer.
+// EffectGraph → an ordered list of render passes (the IR the GPU backend runs).
 //
-// H1 only materializes at output buffers: every chain reachable from an output
-// is fused into that output's shader, and buffer reads sample the previous
-// frame (ping-pong). Neighbourhood ops (blur, edge…) add more boundaries in H2.
+// Everything that can be fused is fused into one fragment shader (Hydra-style).
+// A node is *materialized* (rendered to its own texture) only when a filter
+// needs to read its neighbourhood: filters and the inputs of filters.
+// Each output buffer (o0…o3) gets one final pass; buffer reads (`o(i)`) see
+// the previous frame. See PLAN.md §1 and §5.
 
 import type { EffectGraph, OutputId } from './types';
 import { OUTPUTS } from './types';
-import { OPS, PRELUDE, SNIPPET_DEPS } from '../ops/registry';
+import { arity, FILTER_PRELUDE, OPS, PRELUDE, SNIPPET_DEPS } from '../ops/registry';
 
 /** Max f32 params per effect: P is array<vec4f, 64>. */
 export const MAX_PARAMS = 256;
+/** Textures a single pass can read besides the camera and o0–o3 (T0…T3). */
+export const MAX_PASS_INPUTS = 4;
+
+export type PassTarget = { kind: 'output'; id: OutputId } | { kind: 'temp'; id: string };
 
 export interface CompiledPass {
-  output: OutputId;
+  /** Shader source; identical sources share a pipeline. */
   wgsl: string;
+  /** Temp texture ids bound as T0…T3, in order. */
+  inputs: string[];
+  target: PassTarget;
+}
+
+export interface TempTexture {
+  id: string;
+  /** Resolution relative to the output. */
+  scale: number;
 }
 
 export interface CompiledEffect {
   passes: CompiledPass[];
+  temps: TempTexture[];
   /** "<nodeId>.<param>" → slot in the params uniform. */
   slots: Record<string, number>;
   /** Initial uniform contents, MAX_PARAMS long. */
@@ -26,13 +42,13 @@ export interface CompiledEffect {
   macros: { label: string; slot: number; min: number; max: number }[];
 }
 
-// Binding layout shared by every effect pass; the runtime mirrors it.
+// Binding layout shared by every pass; the runtime mirrors it.
 export const HEADER = /* wgsl */ `
 struct Globals {
   time: f32,
   dt: f32,
   res: vec2f,
-  camFit: vec4f, // xy: uv scale for cover fit, z: mirror (0/1)
+  camFit: vec4f, // xy: uv scale for cover fit and zoom, z: mirror (0/1)
 };
 @group(0) @binding(0) var<uniform> G: Globals;
 @group(0) @binding(1) var<uniform> P: array<vec4f, 64>;
@@ -42,6 +58,10 @@ struct Globals {
 @group(0) @binding(5) var t_o1: texture_2d<f32>;
 @group(0) @binding(6) var t_o2: texture_2d<f32>;
 @group(0) @binding(7) var t_o3: texture_2d<f32>;
+@group(1) @binding(0) var T0: texture_2d<f32>;
+@group(1) @binding(1) var T1: texture_2d<f32>;
+@group(1) @binding(2) var T2: texture_2d<f32>;
+@group(1) @binding(3) var T3: texture_2d<f32>;
 
 fn sampleCam(uv: vec2f) -> vec4f {
   var q = (uv - 0.5) * G.camFit.xy + 0.5;
@@ -66,56 +86,87 @@ fn vs(@builtin(vertex_index) i: u32) -> VSOut {
 
 const COMPONENT = ['x', 'y', 'z', 'w'];
 const slotExpr = (s: number) => `P[${s >> 2}].${COMPONENT[s & 3]}`;
-const fnName = (id: string) => `n_${id.replace(/[^A-Za-z0-9_]/g, '_')}`;
+const safe = (id: string) => id.replace(/[^A-Za-z0-9_]/g, '_');
+const fnName = (id: string) => `n_${safe(id)}`;
+
+function fragment(body: string) {
+  return `@fragment\nfn fs(in: VSOut) -> @location(0) vec4f {\n  FC = in.pos.xy;\n  return clamp(${body}, vec4f(0.0), vec4f(64.0));\n}`;
+}
 
 export function compileEffect(graph: EffectGraph): CompiledEffect {
+  const nodes = graph.nodes;
   const slots: Record<string, number> = {};
   const values = new Float32Array(MAX_PARAMS);
   let nextSlot = 0;
 
   // Validate every node up front so errors name the node.
-  for (const [id, node] of Object.entries(graph.nodes)) {
+  for (const [id, node] of Object.entries(nodes)) {
     const def = OPS[node.op];
     if (!def) throw new Error(`node ${id}: unknown op "${node.op}"`);
-    const want = def.kind === 'combine' || def.kind === 'combineCoord' ? 2 : def.kind === 'texture' || def.kind === 'source' ? 0 : 1;
+    const want = arity(def);
     const got = node.in?.length ?? 0;
     if (got !== want) throw new Error(`node ${id}: "${node.op}" needs ${want} input(s), has ${got}`);
     for (const src of node.in ?? []) {
-      if (!graph.nodes[src]) throw new Error(`node ${id}: input "${src}" does not exist`);
+      if (!nodes[src]) throw new Error(`node ${id}: input "${src}" does not exist`);
     }
   }
 
   const param = (id: string, name: string): string => {
-    const node = graph.nodes[id];
+    const node = nodes[id];
     const def = OPS[node.op].params.find((p) => p.name === name)!;
-    const value = node.params?.[name] ?? def.default;
     const key = `${id}.${name}`;
     if (!(key in slots)) {
       if (nextSlot >= MAX_PARAMS) throw new Error(`effect ${graph.id}: more than ${MAX_PARAMS} params`);
       slots[key] = nextSlot;
-      values[nextSlot++] = value;
+      values[nextSlot++] = node.params?.[name] ?? def.default;
     }
     return slotExpr(slots[key]);
   };
+  const paramArgs = (id: string) =>
+    OPS[nodes[id].op].params.filter((p) => !p.structural).map((p) => param(id, p.name));
+
+  // Filters and whatever feeds a filter must exist as textures.
+  const materialized = new Set<string>();
+  for (const [id, node] of Object.entries(nodes)) {
+    if (OPS[node.op].kind === 'filter') {
+      materialized.add(id);
+      for (const src of node.in ?? []) materialized.add(src);
+    }
+  }
 
   const passes: CompiledPass[] = [];
-  for (const output of OUTPUTS) {
-    const root = graph.outputs[output];
-    if (!root) continue;
-    if (!graph.nodes[root]) throw new Error(`${output}: node "${root}" does not exist`);
+  const temps = new Map<string, number>();
+  const done = new Set<string>();
+  const inProgress = new Set<string>();
 
+  /**
+   * One fused pass rooted at `root`. Materialized nodes other than an expanded
+   * root are sampled from their textures (and rendered first).
+   */
+  const fusedPass = (root: string, expandRoot: boolean, target: PassTarget) => {
     const order: string[] = [];
+    const inputs: string[] = [];
     const state = new Map<string, 'visiting' | 'done'>();
+    const asTexture = (id: string) => materialized.has(id) && !(expandRoot && id === root);
+
     const visit = (id: string) => {
       const s = state.get(id);
       if (s === 'done') return;
       if (s === 'visiting') throw new Error(`cycle through node ${id}; use a buffer (o0…o3) for feedback`);
       state.set(id, 'visiting');
-      for (const src of graph.nodes[id].in ?? []) visit(src);
+      if (asTexture(id)) {
+        materialize(id);
+        if (!inputs.includes(id)) inputs.push(id);
+      } else {
+        for (const src of nodes[id].in ?? []) visit(src);
+      }
       state.set(id, 'done');
       order.push(id);
     };
     visit(root);
+    if (inputs.length > MAX_PASS_INPUTS) {
+      throw new Error(`pass for ${root} reads ${inputs.length} textures; at most ${MAX_PASS_INPUTS}`);
+    }
 
     const snippets = new Set<string>();
     const addSnippet = (op: string) => {
@@ -126,57 +177,104 @@ export function compileEffect(graph: EffectGraph): CompiledEffect {
 
     const fns: string[] = [];
     for (const id of order) {
-      const node = graph.nodes[id];
+      const node = nodes[id];
       const def = OPS[node.op];
-      addSnippet(node.op);
-      const args = def.params.filter((p) => !p.structural).map((p) => param(id, p.name));
-      const extra = args.length ? ', ' + args.join(', ') : '';
-      const [a, b] = (node.in ?? []).map(fnName);
       let body: string;
-      switch (def.kind) {
-        case 'texture':
-          if (node.op === 'camera') body = 'sampleCam(uv)';
-          else {
-            const index = Math.round(node.params?.index ?? 0);
-            if (index < 0 || index > 3) throw new Error(`node ${id}: buffer index ${index} out of range`);
-            body = `textureSampleLevel(t_o${index}, samp, uv, 0.0)`;
-          }
-          break;
-        case 'source':
-          body = `op_${node.op}(uv${extra})`;
-          break;
-        case 'coord':
-          body = `${a}(op_${node.op}(uv${extra}))`;
-          break;
-        case 'color':
-          body = `op_${node.op}(${a}(uv)${extra})`;
-          break;
-        case 'combine':
-          body = `op_${node.op}(${a}(uv), ${b}(uv)${extra})`;
-          break;
-        case 'combineCoord':
-          body = `${a}(op_${node.op}(uv, ${b}(uv)${extra}))`;
-          break;
+      if (asTexture(id)) {
+        body = `textureSampleLevel(T${inputs.indexOf(id)}, samp, uv, 0.0)`;
+      } else {
+        addSnippet(node.op);
+        const args = paramArgs(id);
+        const extra = args.length ? ', ' + args.join(', ') : '';
+        const [a, b] = (node.in ?? []).map(fnName);
+        switch (def.kind) {
+          case 'texture':
+            if (node.op === 'camera') body = 'sampleCam(uv)';
+            else {
+              const index = Math.round(node.params?.index ?? 0);
+              if (index < 0 || index > 3) throw new Error(`node ${id}: buffer index ${index} out of range`);
+              body = `textureSampleLevel(t_o${index}, samp, uv, 0.0)`;
+            }
+            break;
+          case 'source':
+            body = `op_${node.op}(uv${extra})`;
+            break;
+          case 'coord':
+            body = `${a}(op_${node.op}(uv${extra}))`;
+            break;
+          case 'color':
+            body = `op_${node.op}(${a}(uv)${extra})`;
+            break;
+          case 'combine':
+            body = `op_${node.op}(${a}(uv), ${b}(uv)${extra})`;
+            break;
+          case 'combineCoord':
+            body = `${a}(op_${node.op}(uv, ${b}(uv)${extra}))`;
+            break;
+          case 'filter':
+            throw new Error(`internal: filter ${id} reached the fuser`);
+        }
       }
       fns.push(`fn ${fnName(id)}(uv: vec2f) -> vec4f {\n  return ${body};\n}`);
     }
 
-    const wgsl = [
-      HEADER,
-      PRELUDE,
-      ...[...snippets].map((op) => OPS[op].wgsl!.trim()),
-      ...fns,
-      `@fragment\nfn fs(in: VSOut) -> @location(0) vec4f {\n  FC = in.pos.xy;\n  return clamp(${fnName(root)}(in.uv), vec4f(0.0), vec4f(1.0));\n}`,
-    ].join('\n\n');
-    passes.push({ output, wgsl });
+    const wgsl = [HEADER, PRELUDE, ...[...snippets].map((op) => OPS[op].wgsl!.trim()), ...fns, fragment(`${fnName(root)}(in.uv)`)].join('\n\n');
+    passes.push({ wgsl, inputs, target });
+  };
+
+  /** Ensures node `id` has been rendered into the temp texture of the same name. */
+  const materialize = (id: string) => {
+    if (done.has(id)) return;
+    if (inProgress.has(id)) throw new Error(`cycle through node ${id}; use a buffer (o0…o3) for feedback`);
+    inProgress.add(id);
+    const node = nodes[id];
+    const def = OPS[node.op];
+    if (def.kind === 'filter') {
+      const ins = node.in ?? [];
+      ins.forEach(materialize);
+      const args = paramArgs(id);
+      def.passes!.forEach((fp, k) => {
+        const last = k === def.passes!.length - 1;
+        const tempId = last ? id : `${id}#${k}`;
+        temps.set(tempId, fp.scale ?? 1);
+        const inputs = fp.inputs.map((ref) => (ref.startsWith('in') ? ins[Number(ref.slice(2))] : `${id}#${ref.slice(1)}`));
+        const call = `PASS(in.uv${args.length ? ', ' + args.join(', ') : ''})`;
+        const wgsl = [HEADER, PRELUDE, FILTER_PRELUDE, fp.wgsl.trim(), fragment(call)].join('\n\n');
+        passes.push({ wgsl, inputs, target: { kind: 'temp', id: tempId } });
+      });
+    } else {
+      temps.set(id, 1);
+      fusedPass(id, true, { kind: 'temp', id });
+    }
+    inProgress.delete(id);
+    done.add(id);
+  };
+
+  for (const output of OUTPUTS) {
+    const root = graph.outputs[output];
+    if (!root) continue;
+    if (!nodes[root]) throw new Error(`${output}: node "${root}" does not exist`);
+    fusedPass(root, false, { kind: 'output', id: output });
   }
 
-  if (!passes.some((p) => p.output === graph.display)) throw new Error(`display ${graph.display} is never written`);
+  if (!passes.some((p) => p.target.kind === 'output' && p.target.id === graph.display)) {
+    throw new Error(`display ${graph.display} is never written`);
+  }
 
   const macros = graph.macros.map((m) => {
     if (!(m.target in slots)) throw new Error(`macro "${m.label}": ${m.target} is not a uniform param`);
     return { label: m.label, slot: slots[m.target], min: m.range[0], max: m.range[1] };
   });
+  for (const mod of graph.mods) {
+    if (!(mod.target in slots)) throw new Error(`mod: ${mod.target} is not a uniform param`);
+  }
 
-  return { passes, slots, values, display: graph.display, macros };
+  return {
+    passes,
+    temps: [...temps].map(([id, scale]) => ({ id, scale })),
+    slots,
+    values,
+    display: graph.display,
+    macros,
+  };
 }
