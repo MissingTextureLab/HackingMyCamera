@@ -873,23 +873,42 @@ fn PASS(uv: vec2f, cell: f32, offset: f32, ink: f32, lines: f32, jolt: f32) -> v
 // moves away from it `speed` pixels per frame, fed by the live pixels at the
 // line. shape 0: horizontal line (history goes up), 1: vertical (goes left),
 // 2: radial (rings grow outwards from a circle of radius `line`).
-// in0 = the previous frame (o0), in1 = the camera.
+// Every frame the history is copied with a little loss (`wear` 0-1): it
+// smears, its red channel drifts, its colours crush and it darkens, so each
+// repetition is a worse copy of the one before, like a tape dubbed again
+// and again. in0 = the previous frame (o0), in1 = the camera.
 def({
   name: 'slit',
   kind: 'filter',
   inputs: 2,
-  params: [p('speed', 2), p('line', 0.72), p('shape', 0)],
+  params: [p('speed', 2), p('line', 0.72), p('shape', 0), p('wear', 0.4)],
   passes: [
     {
       inputs: ['in0', 'in1'],
       wgsl: /* wgsl */ `
-fn PASS(uv: vec2f, speed: f32, line: f32, shape: f32) -> vec4f {
+fn worn(uv: vec2f, wear: f32) -> vec4f {
+  let px = 1.0 / vec2f(textureDimensions(T0));
+  let w = clamp(wear, 0.0, 1.0);
+  var c = textureSampleLevel(T0, samp, uv, 0.0).rgb;
+  let around = (textureSampleLevel(T0, samp, uv + vec2f(px.x, 0.0), 0.0).rgb
+    + textureSampleLevel(T0, samp, uv - vec2f(px.x, 0.0), 0.0).rgb
+    + textureSampleLevel(T0, samp, uv + vec2f(0.0, px.y), 0.0).rgb
+    + textureSampleLevel(T0, samp, uv - vec2f(0.0, px.y), 0.0).rgb) * 0.25;
+  c = mix(c, around, 0.5 * w);
+  // the red plate slips sideways a little more on every copy
+  c.r = mix(c.r, textureSampleLevel(T0, samp, uv + vec2f(px.x, 0.0), 0.0).r, w);
+  let levels = mix(64.0, 6.0, w * w);
+  c = mix(c, floor(c * levels + 0.5) / levels, 0.35 * w);
+  return vec4f(c * (1.0 - 0.012 * w), 1.0);
+}
+
+fn PASS(uv: vec2f, speed: f32, line: f32, shape: f32, wear: f32) -> vec4f {
   let px = 1.0 / vec2f(textureDimensions(T0));
   let s = max(speed, 0.0);
   let mode = u32(clamp(floor(shape), 0.0, 2.0));
   if (mode == 1u) {
     if (uv.x >= line) { return textureSampleLevel(T1, samp, uv, 0.0); }
-    return textureSampleLevel(T0, samp, uv + vec2f(s * px.x, 0.0), 0.0);
+    return worn(uv + vec2f(s * px.x, 0.0), wear);
   }
   if (mode == 2u) {
     let asp = G.res.x / G.res.y;
@@ -899,10 +918,10 @@ fn PASS(uv: vec2f, speed: f32, line: f32, shape: f32) -> vec4f {
     if (d <= line * 0.5) { return textureSampleLevel(T1, samp, uv, 0.0); }
     var back = q - q / max(d, 0.0001) * s * px.y;
     back.x /= asp;
-    return textureSampleLevel(T0, samp, back + 0.5, 0.0);
+    return worn(back + 0.5, wear);
   }
   if (uv.y >= line) { return textureSampleLevel(T1, samp, uv, 0.0); }
-  return textureSampleLevel(T0, samp, uv + vec2f(0.0, s * px.y), 0.0);
+  return worn(uv + vec2f(0.0, s * px.y), wear);
 }`,
     },
   ],
