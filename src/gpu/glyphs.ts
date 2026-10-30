@@ -39,6 +39,10 @@ export function stampCodes(text: string): number[] {
 }
 
 export const GLYPH_COUNT = 16;
+/** Contour strokes after the density ramp, by direction: 0°, 45° down, 90°, 45° up. */
+export const STROKE_CHARS = ['-', '\\', '|', '/'];
+/** Slots in the atlas row (registry.ts's ascii op divides by this). */
+export const GLYPH_SLOTS = GLYPH_COUNT + STROKE_CHARS.length;
 export const GLYPH_W = 48;
 export const GLYPH_H = 64;
 
@@ -86,10 +90,10 @@ export async function buildGlyphAtlas(): Promise<OffscreenCanvas> {
   }
   while (picks.length < GLYPH_COUNT) picks.push(measured[measured.length - 1].ch);
 
-  const atlas = new OffscreenCanvas(GLYPH_W * GLYPH_COUNT, GLYPH_H);
+  const atlas = new OffscreenCanvas(GLYPH_W * GLYPH_SLOTS, GLYPH_H);
   const actx = atlas.getContext('2d') as Ctx;
   actx.fillStyle = '#000000';
   actx.fillRect(0, 0, atlas.width, atlas.height);
-  picks.forEach((ch, i) => draw(actx, ch, i * GLYPH_W));
+  [...picks, ...STROKE_CHARS].forEach((ch, i) => draw(actx, ch, i * GLYPH_W));
   return atlas;
 }

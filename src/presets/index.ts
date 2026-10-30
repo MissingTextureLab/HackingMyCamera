@@ -82,11 +82,14 @@ const barrido = effect({ id: 'barrido', code: '22', name: 'Barrido' }, (m) => {
   s.out(0);
 });
 
-// Type: the image written in Martian Mono, the identity's own face.
+// Type: the image written in Martian Mono, the identity's own face. Big
+// letters where the image is calm, small ones where it is busy; contours are
+// drawn with strokes that follow them.
 const letra = effect({ id: 'letra', code: '31', name: 'Letra' }, (m) => {
-  const a = cam().ascii(12, 1.3);
-  m.macro('CUERPO', a, 'cell', 6, 32);
-  m.macro('CONTRASTE', a, 'contrast', 0.6, 2.6);
+  const a = cam().ascii(10, 1.3, 0.22, 0.12);
+  m.macro('CUERPO', a, 'cell', 5, 22);
+  m.macro('TRAZOS', a, 'stroke', 0.8, 0.06);
+  m.macro('DETALLE', a, 'split', 0.6, 0.03);
   a.out(0);
 });
 

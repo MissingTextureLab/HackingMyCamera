@@ -141,7 +141,9 @@ export class Chain {
   lens(aberration?: number, barrel?: number, vignette?: number) { return this.un('lens', [aberration, barrel, vignette]); }
   /** Anamorphic streaks from bright spots; `reach` in output pixels. */
   flare(threshold?: number, reach?: number, intensity?: number) { return this.un('flare', [threshold, reach, intensity]); }
-  ascii(cell?: number, contrast?: number) { return this.un('ascii', [cell, contrast]); }
+  ascii(cell?: number, contrast?: number, stroke?: number, split?: number) {
+    return this.un('ascii', [cell, contrast, stroke, split]);
+  }
 
   // 3D scenes (rendered with depth into their own texture)
   relief(height?: number, yaw?: number, pitch?: number, dist?: number, thickness?: number, rows?: number) {

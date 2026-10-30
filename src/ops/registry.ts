@@ -1006,28 +1006,58 @@ fn PASS(uv: vec2f, aberration: f32, barrel: f32, vignette: f32) -> vec4f {
   ],
 });
 
-// Type: the image written in Martian Mono. Cells are 3:4 like the glyphs;
-// brighter cells get denser characters from the atlas (src/gpu/glyphs.ts),
-// lit with the light end of the Citrink ramp on the darkest colour.
+// Type: the image written in Martian Mono. Cells are 3:4 like the glyphs and
+// adapt to the image like a quadtree: 4× `cell` where it is calm, split in
+// two steps down to `cell` where it is busy (detail over `split`). Brighter
+// cells get denser characters from the atlas (src/gpu/glyphs.ts); cells on a
+// strong contour (gradient over `stroke`) are written with the stroke that
+// follows it (- \ | /). Lit with the light end of the Citrink ramp on the
+// darkest colour.
 def({
   name: 'ascii',
   kind: 'filter',
-  params: [p('cell', 12), p('contrast', 1.3)],
+  params: [p('cell', 12), p('contrast', 1.3), p('stroke', 0.22), p('split', 0.12)],
   passes: [
     {
       inputs: ['in0'],
       wgsl: /* wgsl */ `
-fn PASS(uv: vec2f, cell: f32, contrast: f32) -> vec4f {
-  let cw = max(floor(cell), 4.0);
-  let size = vec2f(cw, floor(cw * 4.0 / 3.0));
+// GLYPH_SLOTS in glyphs.ts: 16 densities + 4 strokes
+const SLOTS: f32 = 20.0;
+
+fn cellDetail(c: vec2f, h: vec2f) -> f32 {
+  return abs(lumaAt(T0, c + vec2f(h.x, 0.0)) - lumaAt(T0, c - vec2f(h.x, 0.0)))
+       + abs(lumaAt(T0, c + vec2f(0.0, h.y)) - lumaAt(T0, c - vec2f(0.0, h.y)))
+       + abs(lumaAt(T0, c + h) - lumaAt(T0, c - h))
+       + abs(lumaAt(T0, c + vec2f(h.x, -h.y)) - lumaAt(T0, c - vec2f(h.x, -h.y)));
+}
+
+fn PASS(uv: vec2f, cell: f32, contrast: f32, stroke: f32, split: f32) -> vec4f {
   let res = vec2f(textureDimensions(T0));
-  let id = floor(FC / size);
-  let c = textureSampleLevel(T0, samp, (id + 0.5) * size / res, 0.0);
-  let l = clamp((luma(c.rgb) - 0.5) * contrast + 0.5, 0.0, 1.0);
-  let gi = min(floor(l * 16.0), 15.0);
+  let cw = max(floor(cell), 4.0);
+  var size = vec2f(cw, floor(cw * 4.0 / 3.0)) * 4.0;
+  var id = floor(FC / size);
+  // big where calm; busy cells split into four, twice at most
+  for (var k = 0; k < 2; k++) {
+    if (cellDetail((id + 0.5) * size / res, size * 0.4 / res) < split) { break; }
+    size *= 0.5;
+    id = floor(FC / size);
+  }
+  let c = (id + 0.5) * size / res;
+  let h = size * 0.5 / res;
+  let l = clamp((lumaAt(T0, c) - 0.5) * contrast + 0.5, 0.0, 1.0);
+  let gx = lumaAt(T0, c + vec2f(h.x, 0.0)) - lumaAt(T0, c - vec2f(h.x, 0.0));
+  let gy = lumaAt(T0, c + vec2f(0.0, h.y)) - lumaAt(T0, c - vec2f(0.0, h.y));
+  var gi = min(floor(l * 16.0), 15.0);
+  var shade = 3.0 + l * 4.99;
+  if (length(vec2f(gx, gy)) > stroke) {
+    // the contour runs across the gradient; 0: -, 1: \\, 2: |, 3: /
+    let along = fract((atan2(gy, gx) + PI * 0.5) / PI);
+    gi = 16.0 + f32(u32(floor(along * 4.0 + 0.5)) % 4u);
+    shade = max(shade, 5.0);
+  }
   let local = fract(FC / size);
-  let on = textureSampleLevel(t_glyphs, samp, vec2f((gi + local.x) / 16.0, local.y), 0.0).r;
-  let ink = CITRINK[u32(clamp(3.0 + l * 4.99, 3.0, 7.0))];
+  let on = textureSampleLevel(t_glyphs, samp, vec2f((gi + local.x) / SLOTS, local.y), 0.0).r;
+  let ink = CITRINK[u32(clamp(shade, 3.0, 7.0))];
   return vec4f(mix(CITRINK[0], ink, on), 1.0);
 }`,
     },
