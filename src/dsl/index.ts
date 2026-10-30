@@ -97,8 +97,6 @@ export class Chain {
   lighten(other: Chain, amount?: number) { return this.bin('lighten', other, [amount]); }
   /** Feedback smoke: the image rises and swirls a little every frame, blurring as it ages. */
   smoke(amount?: number) { return this.un('smoke', [amount]); }
-  /** Time machine: shows the camera delayed per pixel by this chain's brightness × `span` seconds (≤ ~2). */
-  timewarp(span?: number) { return this.un('timewarp', [span]); }
   /** Motion since `previous` (usually the last camera frame in a buffer): px per frame per 8 px block. */
   flow(previous: Chain) { return this.bin('flow', previous, []); }
   /** Datamosh: drags this along a `motion` map (from flow), a `block` of pixels at a time. */
@@ -178,8 +176,6 @@ export const voronoi = (scale?: number, speed?: number, blending?: number) => bu
 export const shape = (sides?: number, radius?: number, smoothing?: number) => builder().add('shape', [], [sides, radius, smoothing]);
 export const gradient = (speed?: number) => builder().add('gradient', [], [speed]);
 export const solid = (r?: number, g?: number, b?: number) => builder().add('solid', [], [r, g, b]);
-/** Delay map for timewarp: 0 top-bottom, 1 rings, 2 noise, 3 camera brightness; `bands` repeats it. */
-export const field = (shape?: number, bands?: number) => builder().add('field', [], [shape, bands]);
 
 export interface EffectMeta {
   id: string;

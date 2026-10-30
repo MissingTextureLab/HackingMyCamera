@@ -184,30 +184,6 @@ fn op_solid(uv: vec2f, r: f32, g: f32, b: f32) -> vec4f {
 }`,
 });
 
-// A delay map for timewarp, 0-1. shape 0: top to bottom, 1: rings from the
-// centre, 2: slow noise, 3: the camera's own brightness. `bands` repeats it
-// as a sawtooth, cutting time into strips.
-def({
-  name: 'field',
-  kind: 'source',
-  params: [p('shape', 0), p('bands', 1)],
-  wgsl: /* wgsl */ `
-fn op_field(uv: vec2f, shape: f32, bands: f32) -> vec4f {
-  let mode = u32(clamp(floor(shape), 0.0, 3.0));
-  let asp = G.res.x / G.res.y;
-  var v = uv.y;
-  if (mode == 1u) {
-    v = length((uv - 0.5) * vec2f(asp, 1.0)) * 1.6;
-  } else if (mode == 2u) {
-    v = vnoise(vec3f(uv * vec2f(asp, 1.0) * 2.5, G.time * 0.15));
-  } else if (mode == 3u) {
-    v = luma(sampleCam(uv).rgb);
-  }
-  let m = fract(clamp(v, 0.0, 0.9999) * max(bands, 1.0));
-  return vec4f(vec3f(m), 1.0);
-}`,
-});
-
 /* ---------- coordinates ---------- */
 
 def({
@@ -764,25 +740,6 @@ fn PASS(uv: vec2f, drag: f32, block: f32) -> vec4f {
   let cell = (floor(uv * res / b) + 0.5) * b / res;
   let v = textureSampleLevel(T1, samp, cell, 0.0).xy;
   return textureSampleLevel(T0, samp, uv - v * drag / res, 0.0);
-}`,
-    },
-  ],
-});
-
-// Time machine: every pixel shows the camera as it was some time ago, set by
-// the input's brightness (a delay map, e.g. field) × `span` seconds, up to
-// the history's ~2 s. Reads the engine's camera history (sampleCamAgo).
-def({
-  name: 'timewarp',
-  kind: 'filter',
-  params: [p('span', 1.5)],
-  passes: [
-    {
-      inputs: ['in0'],
-      wgsl: /* wgsl */ `
-fn PASS(uv: vec2f, span: f32) -> vec4f {
-  let m = luma(textureSampleLevel(T0, samp, uv, 0.0).rgb);
-  return sampleCamAgo(uv, m * max(span, 0.0));
 }`,
     },
   ],
