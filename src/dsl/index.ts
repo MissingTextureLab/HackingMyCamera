@@ -118,6 +118,8 @@ export class Chain {
   edge(strength?: number) { return this.un('edge', [strength]); }
   sharpen(amount?: number) { return this.un('sharpen', [amount]); }
   bloom(threshold?: number, intensity?: number, radius?: number) { return this.un('bloom', [threshold, intensity, radius]); }
+  /** Real bloom: wide, smooth halo from a 5-level down/up pyramid. `spread` 0-1 weighs the wide levels. */
+  glow(threshold?: number, intensity?: number, spread?: number) { return this.un('glow', [threshold, intensity, spread]); }
   /** Slides this image along the luminance gradient of `map` (TouchDesigner Displace). */
   displace(map: Chain, amount?: number) { return this.bin('displace', map, [amount]); }
   /** Two-ink halftone on paper, second plate out of register by `offset` px. */

@@ -1006,6 +1006,110 @@ fn PASS(uv: vec2f, aberration: f32, barrel: f32, vignette: f32) -> vec4f {
   ],
 });
 
+// Real bloom: the light spreads over a pyramid of five downsamples (1/2 …
+// 1/32, 13-tap filter, soft-knee threshold on the first) and comes back up
+// level by level (3x3 tent, each level added to the one above), so the halo is
+// wide, smooth and falls off naturally. `spread` 0-1: how much the wide
+// levels count; `intensity`: how much light is added on top of the image.
+const GLOW_DOWN = /* wgsl */ `
+// soft-knee threshold on one colour (cut < 0: pass everything)
+fn knee(c: vec3f, cut: f32) -> vec3f {
+  if (cut < 0.0) { return c; }
+  let br = max(c.r, max(c.g, c.b));
+  let k = max(cut * 0.5, 1e-4);
+  var soft = clamp(br - cut + k, 0.0, 2.0 * k);
+  soft = soft * soft / (4.0 * k);
+  return c * max(soft, br - cut) / max(br, 1e-4);
+}
+
+fn tap(uv: vec2f, cut: f32) -> vec3f {
+  return knee(textureSampleLevel(T0, samp, uv, 0.0).rgb, cut);
+}
+
+fn down13(uv: vec2f, cut: f32) -> vec3f {
+  let t = 1.0 / vec2f(textureDimensions(T0));
+  let a = tap(uv + t * vec2f(-2.0, -2.0), cut);
+  let b = tap(uv + t * vec2f(0.0, -2.0), cut);
+  let c = tap(uv + t * vec2f(2.0, -2.0), cut);
+  let d = tap(uv + t * vec2f(-2.0, 0.0), cut);
+  let e = tap(uv, cut);
+  let f = tap(uv + t * vec2f(2.0, 0.0), cut);
+  let g = tap(uv + t * vec2f(-2.0, 2.0), cut);
+  let h = tap(uv + t * vec2f(0.0, 2.0), cut);
+  let i = tap(uv + t * vec2f(2.0, 2.0), cut);
+  let j = tap(uv + t * vec2f(-1.0, -1.0), cut);
+  let k = tap(uv + t * vec2f(1.0, -1.0), cut);
+  let l = tap(uv + t * vec2f(-1.0, 1.0), cut);
+  let m = tap(uv + t * vec2f(1.0, 1.0), cut);
+  return e * 0.125 + (a + c + g + i) * 0.03125 + (b + d + f + h) * 0.0625 + (j + k + l + m) * 0.125;
+}`;
+const GLOW_TENT = /* wgsl */ `
+fn tent(uv: vec2f) -> vec3f {
+  let t = 1.0 / vec2f(textureDimensions(T1));
+  var s = textureSampleLevel(T1, samp, uv, 0.0).rgb * 4.0;
+  s += (textureSampleLevel(T1, samp, uv + vec2f(t.x, 0.0), 0.0).rgb
+    + textureSampleLevel(T1, samp, uv - vec2f(t.x, 0.0), 0.0).rgb
+    + textureSampleLevel(T1, samp, uv + vec2f(0.0, t.y), 0.0).rgb
+    + textureSampleLevel(T1, samp, uv - vec2f(0.0, t.y), 0.0).rgb) * 2.0;
+  s += textureSampleLevel(T1, samp, uv + t, 0.0).rgb
+    + textureSampleLevel(T1, samp, uv - t, 0.0).rgb
+    + textureSampleLevel(T1, samp, uv + vec2f(t.x, -t.y), 0.0).rgb
+    + textureSampleLevel(T1, samp, uv + vec2f(-t.x, t.y), 0.0).rgb;
+  return s / 16.0;
+}`;
+const GLOW_ARGS = 'uv: vec2f, threshold: f32, intensity: f32, spread: f32';
+const glowDown = (from: string, scale: number) => ({
+  inputs: [from],
+  scale,
+  wgsl: `${GLOW_DOWN}
+fn PASS(${GLOW_ARGS}) -> vec4f {
+  return vec4f(down13(uv, -1.0), 1.0);
+}`,
+});
+// level k: its own downsample plus the wider level, brought up
+const glowUp = (level: string, wider: string, scale: number) => ({
+  inputs: [level, wider],
+  scale,
+  wgsl: `${GLOW_TENT}
+fn PASS(${GLOW_ARGS}) -> vec4f {
+  return vec4f(textureSampleLevel(T0, samp, uv, 0.0).rgb + tent(uv) * clamp(spread, 0.0, 1.0), 1.0);
+}`,
+});
+def({
+  name: 'glow',
+  kind: 'filter',
+  params: [p('threshold', 0.6), p('intensity', 1), p('spread', 0.8)],
+  passes: [
+    // p0: 1/2, each pixel thresholded with a soft knee before averaging
+    {
+      inputs: ['in0'],
+      scale: 0.5,
+      wgsl: `${GLOW_DOWN}
+fn PASS(${GLOW_ARGS}) -> vec4f {
+  return vec4f(down13(uv, max(threshold, 0.0)), 1.0);
+}`,
+    },
+    glowDown('p0', 0.25), // p1
+    glowDown('p1', 0.125), // p2
+    glowDown('p2', 0.0625), // p3
+    glowDown('p3', 0.03125), // p4
+    glowUp('p3', 'p4', 0.0625), // p5
+    glowUp('p2', 'p5', 0.125), // p6
+    glowUp('p1', 'p6', 0.25), // p7
+    glowUp('p0', 'p7', 0.5), // p8
+    {
+      inputs: ['in0', 'p8'],
+      wgsl: `${GLOW_TENT}
+fn PASS(${GLOW_ARGS}) -> vec4f {
+  let c = textureSampleLevel(T0, samp, uv, 0.0);
+  // every level adds its light: normalise by how many count
+  let light = tent(uv) / (1.0 + 4.0 * clamp(spread, 0.0, 1.0));
+  return vec4f(c.rgb + light * intensity, c.a);
+}`,
+    },
+  ],
+});
+
 // Type: the image written in Martian Mono. Cells are 3:4 like the glyphs and
 // adapt to the image like a quadtree: 4× `cell` where it is calm, split in
 // two steps down to `cell` where it is busy (detail over `split`). Brighter

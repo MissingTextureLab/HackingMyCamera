@@ -131,7 +131,7 @@ Cada efecto trata una sola cuestión de lo visual. Si dos efectos responden a la
 | FX-14 | HALO | Luz | pintar con luz: solo lo brillante deja estela, como una exposición larga; la estela fresca es verde y la vieja pasa a morado y se deshace en humo; al hacer foto o grabar, un fogonazo la borra y empieza una exposición nueva |
 | FX-19 | MUDA | Memoria | solo lo que se mueve deja fantasmas de color, que fluyen sobre un relieve de ruido y se arrastran en bloques siguiendo el movimiento real (datamosh); lo quieto queda nítido |
 | FX-22 | BARRIDO | Tiempo | slit-scan con rendija horizontal, que sube y baja con el dedo; cada repetición del historial es una copia peor que la anterior (se emborrona, el rojo se desplaza, el color se aplasta y se oscurece) |
-| FX-31 | LETRA | Tipografía | la imagen escrita con caracteres reales de Martian Mono, ordenados por densidad; letras grandes donde la imagen está tranquila y pequeñas donde hay detalle, los contornos dibujados con trazos (- \ | /) que los siguen, y las letras claras brillan con bloom |
+| FX-31 | LETRA | Tipografía | la imagen escrita con caracteres reales de Martian Mono, ordenados por densidad; letras grandes donde la imagen está tranquila y pequeñas donde hay detalle, los contornos dibujados con trazos (- \ | /) que los siguen, y las letras claras brillan con un bloom real (pirámide de 5 niveles, halo ancho y suave) |
 | FX-44 | SEÑAL | Vídeo analógico | tracking, nieve, sangrado; tocar la imagen hace perder la sincronía (la imagen rueda) |
 | FX-50 | ORDEN | Glitch digital | pixel sorting real, calculado en la GPU con un compute shader |
 | FX-60 | RELIEVE | Relieve | terreno de líneas de cresta, encuadre frontal y bajo; número de líneas como gesto |

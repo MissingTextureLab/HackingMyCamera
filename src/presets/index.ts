@@ -90,7 +90,7 @@ const letra = effect({ id: 'letra', code: '31', name: 'Letra' }, (m) => {
   m.macro('CUERPO', a, 'cell', 5, 22);
   m.macro('TRAZOS', a, 'stroke', 0.8, 0.06);
   m.macro('DETALLE', a, 'split', 0.6, 0.03);
-  a.bloom(0.5, 1.1, 10).out(0);
+  a.glow(0.35, 2.5, 0.85).out(0);
 });
 
 // Signal: analogue video. Touch the image and the sync goes.
