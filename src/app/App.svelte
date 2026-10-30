@@ -392,7 +392,9 @@
   {/if}
 
   <div class="deck">
-    <div class="rail" aria-hidden="true"><span class="label cut-bl">{position}</span></div>
+    <div class="rail" aria-hidden="true">
+      <span class="pos label cut-bl">{position}</span>
+    </div>
     <EffectStrip effects={PRESETS} selected={effectId} onselect={(id) => selectEffect(id)} onthumb={queueThumb} />
     <div class="row">
       <button class="key cut-tr" type="button" onclick={flip} aria-label="Cambiar cámara"><span class="label cut-tr">F/T</span></button>
@@ -679,7 +681,8 @@
     border-left-width: var(--stroke);
     border-right-width: var(--stroke);
   }
-  .rail span {
+  /* stacked over the strip, whose ticks scroll under it */
+  .rail .pos {
     position: relative;
     margin-right: var(--space-4);
     background: var(--panel);

@@ -23,6 +23,7 @@
 <div class="strip" role="group" aria-label="Efectos">
   {#each effects as fx (fx.id)}
     <button class="fx" type="button" aria-pressed={fx.id === selected} onclick={() => onselect(fx.id)}>
+      <i class="tick" aria-hidden="true"></i>
       <span class="slot cut-br"><canvas class="thumb cut-br" use:live={fx.id} aria-hidden="true"></canvas></span>
       <span class="code label">{fx.code} {fx.name}</span>
     </button>
@@ -36,9 +37,10 @@
     overflow-x: auto;
     scrollbar-width: none;
     touch-action: pan-x;
-    /* room for the selection brackets */
-    padding: 4px 4px 0;
-    margin: -4px -4px 0;
+    /* reaches up over the rail (App .rail) so each thumbnail can put its tick
+       on the line; the extra 4px on the sides are room for the brackets */
+    padding: 24px 4px 0;
+    margin: -24px -4px 0;
   }
   .fx {
     position: relative;
@@ -70,6 +72,22 @@
     width: 100%;
     height: 100%;
     background: var(--panel);
+  }
+  /* timeline tick on the rail line, centred over the thumbnail; the selected
+     one is the playhead */
+  .tick {
+    position: absolute;
+    top: -16px;
+    left: 23px;
+    width: 1px;
+    height: 4px;
+    background: var(--lagoon);
+  }
+  .fx[aria-pressed='true'] .tick {
+    top: -18px;
+    width: var(--stroke);
+    height: 8px;
+    background: var(--acid);
   }
   .code {
     background: var(--panel);
