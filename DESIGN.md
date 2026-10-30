@@ -120,24 +120,21 @@ Las únicas rupturas permitidas, cada una ligada a un evento:
 
 El sello es el único elemento que puede girar fuera del ángulo recto, y solo `stamp-angle`. Lo dibuja el mismo motor que los efectos, así que hereda el efecto activo.
 
-## La galería: diez preguntas visuales
+## La galería: once preguntas visuales
 
 Cada efecto trata una sola cuestión de lo visual. Si dos efectos responden a la misma pregunta, sobra uno.
 
 | Código | Nombre | Pregunta | Herramienta |
 |---|---|---|---|
-| FX-01 | LENTE | Óptica de cine | destellos anamórficos: las luces fuertes dejan estelas horizontales teñidas; algo de barril y aberración |
 | FX-07 | TRAMA | Imprenta | semitono a dos tintas desregistradas; 12 variantes (4 pares de tintas × puntos, líneas, cruz); al disparar, las planchas saltan |
 | FX-12 | ESPEJO | Simetría | espejo en abismo: reflejos anidados y espejados, con marco `acid` |
 | FX-14 | HALO | Luz | pintar con luz: solo lo brillante deja estela, como una exposición larga |
 | FX-19 | MUDA | Memoria | solo lo que se mueve deja fantasmas de color, que fluyen sobre un relieve de ruido; lo quieto queda nítido |
 | FX-22 | BARRIDO | Tiempo | slit-scan con rendija horizontal, vertical o radial |
 | FX-31 | LETRA | Tipografía | la imagen escrita con caracteres reales de Martian Mono, ordenados por densidad |
-| FX-36 | VITRAL | Teselación | vitral cuyas celdas se subdividen donde la imagen tiene detalle |
 | FX-44 | SEÑAL | Vídeo analógico | tracking, nieve, sangrado; tocar la imagen hace perder la sincronía (la imagen rueda) |
 | FX-50 | ORDEN | Glitch digital | pixel sorting real, calculado en la GPU con un compute shader |
 | FX-60 | RELIEVE | Relieve | terreno de líneas de cresta, encuadre frontal y bajo; número de líneas como gesto |
-| FX-63 | NUBE | Volumen | nube de puntos a tres cuartos; puntos mayores cuanto más brillantes, con deriva lenta |
 | FX-66 | CIUDAD | Masa | bloques en vista isométrica, tan altos como brillante es la imagen |
 | FX-69 | TALLA | Talla | la imagen como relieve texturizado, casi de frente: lo brillante avanza, los contrastes se vuelven paredes y púas; halo en las luces |
 

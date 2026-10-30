@@ -1,20 +1,10 @@
-// The gallery: fourteen effects, each about one visual question. Names follow
+// The gallery: eleven effects, each about one visual question. Names follow
 // DESIGN.md (catalogue code + one Spanish word).
 // Macros: A = drag x, B = drag y, C = two-finger twist.
 // Mods move params on their own (LFO) or with the finger (touch).
 
 import { cam, effect, event, lfo, noise, o, touch } from '../dsl';
 import type { EffectGraph } from '../graph/types';
-
-// Optics: a cinema lens. Bright spots bleed long horizontal streaks; the
-// glass bends and fringes a little at the edges.
-const lente = effect({ id: 'lente', code: '01', name: 'Lente' }, (m) => {
-  const f = cam().lens(1.2, 0.18, 0.45).flare(0.85, 400, 1);
-  m.macro('DESTELLO', f, 'intensity', 0, 3);
-  m.macro('LARGO', f, 'reach', 60, 1200);
-  m.macro('UMBRAL', f, 'threshold', 0.95, 0.4);
-  f.out(0);
-});
 
 // Print: two-ink halftone, out of register; shooting knocks the plates apart.
 const trama = effect({ id: 'trama', code: '07', name: 'Trama' }, (m) => {
@@ -87,15 +77,6 @@ const letra = effect({ id: 'letra', code: '31', name: 'Letra' }, (m) => {
   a.out(0);
 });
 
-// Tessellation: stained glass, fine where the image is busy.
-const vitral = effect({ id: 'vitral', code: '36', name: 'Vitral' }, (m) => {
-  const v = cam().vitral(10, 0.08, 0.5, 0.6);
-  m.macro('TESELAS', v, 'scale', 4, 30);
-  m.macro('PLOMO', v, 'border', 0.01, 0.3);
-  m.macro('DETALLE', v, 'detail', 0, 1);
-  v.out(0);
-});
-
 // Signal: analogue video. Touch the image and the sync goes.
 const senal = effect({ id: 'senal', code: '44', name: 'Señal' }, (m) => {
   const v = cam().vhs(0.5, 0.6, 1.2, 0);
@@ -129,16 +110,6 @@ const relieve = effect({ id: 'relieve', code: '60', name: 'Relieve' }, (m) => {
   r.out(0);
 });
 
-// Volume: the camera as a cloud of points, seen three-quarters, drifting.
-const nube = effect({ id: 'nube', code: '63', name: 'Nube' }, (m) => {
-  const c = cam().cloud(0.9, 3, 0.5, 0.18, 2.7, 0.05);
-  m.macro('PROFUNDIDAD', c, 'depth', 0, 2.5);
-  m.macro('TAMAÑO', c, 'size', 1, 10);
-  m.macro('DERIVA', c, 'drift', 0, 0.3);
-  m.mod(c, 'yaw', lfo('sine', 0.025), 0.42, 0.58);
-  c.out(0);
-});
-
 // Mass: a city of blocks, as tall as the image is bright. Isometric.
 const ciudad = effect({ id: 'ciudad', code: '66', name: 'Ciudad' }, (m) => {
   const c = cam().blur(6).city(0.8, 0.785, 0.6155, 1.7, 0.15);
@@ -161,4 +132,4 @@ const talla = effect({ id: 'talla', code: '69', name: 'Talla' }, (m) => {
   glow.out(0);
 });
 
-export const PRESETS: EffectGraph[] = [lente, trama, espejo, halo, muda, barrido, letra, vitral, senal, orden, relieve, nube, ciudad, talla];
+export const PRESETS: EffectGraph[] = [trama, espejo, halo, muda, barrido, letra, senal, orden, relieve, ciudad, talla];
