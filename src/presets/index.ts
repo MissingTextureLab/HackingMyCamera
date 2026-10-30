@@ -1,4 +1,4 @@
-// The gallery: thirteen effects, each about one visual question. Names follow
+// The gallery: fourteen effects, each about one visual question. Names follow
 // DESIGN.md (catalogue code + one Spanish word).
 // Macros: A = drag x, B = drag y, C = two-finger twist.
 // Mods move params on their own (LFO) or with the finger (touch).
@@ -149,4 +149,16 @@ const ciudad = effect({ id: 'ciudad', code: '66', name: 'Ciudad' }, (m) => {
   c.out(0);
 });
 
-export const PRESETS: EffectGraph[] = [lente, trama, espejo, halo, muda, barrido, letra, vitral, senal, orden, relieve, nube, ciudad];
+// Carving: the image as a textured relief seen almost head-on; bright parts
+// come forward, sharp contrasts become walls and spikes, lights get a halo.
+const talla = effect({ id: 'talla', code: '69', name: 'Talla' }, (m) => {
+  const t = cam().contrast(1.15).carve(0.6, -0.18, 0.12, 4.2, 1, 1);
+  const glow = t.bloom(0.75, 0.9, 10);
+  m.macro('PROFUNDIDAD', t, 'depth', 0, 1.6);
+  m.macro('ÁNGULO', t, 'yaw', -0.8, 0.8);
+  m.macro('AFILADO', t, 'sharp', 0.4, 3);
+  m.mod(t, 'pitch', lfo('sine', 0.03), 0.05, 0.2);
+  glow.out(0);
+});
+
+export const PRESETS: EffectGraph[] = [lente, trama, espejo, halo, muda, barrido, letra, vitral, senal, orden, relieve, nube, ciudad, talla];

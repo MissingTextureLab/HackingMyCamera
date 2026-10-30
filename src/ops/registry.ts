@@ -1213,6 +1213,59 @@ fn fs_city(in: VC) -> @location(0) vec4f {
   },
 });
 
+// Carve: the image as a textured relief. A dense grid, each vertex pushed
+// towards the camera by its brightness (`sharp` > 1 keeps only the brightest
+// parts high); the image itself is the texture, so steep walls stretch it into
+// streaks and spikes. Facets get a little light from their own normal.
+const CARVE_X = 180;
+const CARVE_Y = 320;
+def({
+  name: 'carve',
+  kind: 'render3d',
+  params: [p('depth', 0.6), p('yaw', -0.18), p('pitch', 0.12), p('dist', 3.2), p('sharp', 1), p('mono', 1)],
+  scene: {
+    draws: [{ vs: 'vs_carve', fs: 'fs_carve', count: (CARVE_X - 1) * (CARVE_Y - 1) * 6 }],
+    wgsl: /* wgsl */ `
+const MX: u32 = ${CARVE_X}u;
+const MY: u32 = ${CARVE_Y}u;
+
+struct VM {
+  @builtin(position) pos: vec4f,
+  @location(0) uv: vec2f,
+  @location(1) world: vec3f,
+};
+
+@vertex
+fn vs_carve(@builtin(vertex_index) i: u32) -> VM {
+  let quad = i / 6u;
+  let k = i % 6u;
+  var dc = array<u32, 6>(0u, 1u, 0u, 0u, 1u, 1u);
+  var dr = array<u32, 6>(0u, 0u, 1u, 1u, 0u, 1u);
+  let c = quad % (MX - 1u) + dc[k];
+  let r = quad / (MX - 1u) + dr[k];
+  let uv = vec2f(f32(c) / f32(MX - 1u), f32(r) / f32(MY - 1u));
+  let asp = G.res.x / G.res.y;
+  let l = luma(imageAt(uv).rgb);
+  let z = pow(clamp(l, 0.0, 1.0), max(p_sharp(), 0.1)) * p_depth();
+  let world = vec3f((uv.x - 0.5) * 2.0 * asp, (0.5 - uv.y) * 2.0, z);
+  var o: VM;
+  o.pos = orbit(p_yaw(), p_pitch(), p_dist(), vec3f(0.0, 0.0, p_depth() * 0.3)) * vec4f(world, 1.0);
+  o.uv = uv;
+  o.world = world;
+  return o;
+}
+
+@fragment
+fn fs_carve(in: VM) -> @location(0) vec4f {
+  let c = imageAt(in.uv).rgb;
+  let n = normalize(cross(dpdx(in.world), dpdy(in.world)));
+  let light = 0.7 + 0.45 * abs(dot(n, normalize(vec3f(-0.3, 0.5, 0.8))));
+  let col = mix(c, vec3f(luma(c)), clamp(p_mono(), 0.0, 1.0)) * light;
+  return vec4f(col, 1.0);
+}`,
+  },
+});
+
 /** Helpers for 3D scenes: projection, an orbit camera and the input image. */
 export const SCENE_PRELUDE = /* wgsl */ `
 fn perspective(fovy: f32, aspect: f32, near: f32, far: f32) -> mat4x4f {

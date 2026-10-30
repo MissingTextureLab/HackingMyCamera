@@ -138,8 +138,9 @@ Cada efecto trata una sola cuestión de lo visual. Si dos efectos responden a la
 | FX-60 | RELIEVE | Relieve | terreno de líneas de cresta, encuadre frontal y bajo; número de líneas como gesto |
 | FX-63 | NUBE | Volumen | nube de puntos a tres cuartos; puntos mayores cuanto más brillantes, con deriva lenta |
 | FX-66 | CIUDAD | Masa | bloques en vista isométrica, tan altos como brillante es la imagen |
+| FX-69 | TALLA | Talla | la imagen como relieve texturizado, casi de frente: lo brillante avanza, los contrastes se vuelven paredes y púas; halo en las luces |
 
-Las escenas 3D (60–66) tienen un encuadre fijo y compuesto, con un balanceo lento para que se lea el volumen. Ya no usan el giroscopio.
+Las escenas 3D (60–69) tienen un encuadre fijo y compuesto, con un balanceo lento para que se lea el volumen. Ya no usan el giroscopio.
 
 Cada efecto expone hasta tres macros con nombre propio (A, B, C; ver *Gestos*).
 

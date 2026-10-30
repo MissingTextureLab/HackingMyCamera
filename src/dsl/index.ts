@@ -134,6 +134,10 @@ export class Chain {
   cloud(depth?: number, size?: number, yaw?: number, pitch?: number, dist?: number, drift?: number) {
     return this.un('cloud', [depth, size, yaw, pitch, dist, drift]);
   }
+  /** Textured relief: the image pushed towards the camera by its brightness. */
+  carve(depth?: number, yaw?: number, pitch?: number, dist?: number, sharp?: number, mono?: number) {
+    return this.un('carve', [depth, yaw, pitch, dist, sharp, mono]);
+  }
   /** Isometric: `zoom` is the visible half height in scene units. */
   city(height?: number, yaw?: number, pitch?: number, zoom?: number, gap?: number) {
     return this.un('city', [height, yaw, pitch, zoom, gap]);
