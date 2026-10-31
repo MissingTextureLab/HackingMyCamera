@@ -62,7 +62,6 @@
       localStorage.setItem('hmc.grade', String(grade));
     } catch {}
     send({ type: 'grade', mode: grade });
-    sabotage();
     buzz(8);
   }
 
@@ -135,13 +134,12 @@
       case 'recStarted':
         recording = true;
         recSeconds = 0;
-        sabotage();
         buzz(30);
         break;
       case 'recStopped':
         recording = false;
         if (m.blob) keep(m.blob, nextName('mp4'), true);
-        else say(`NO SE GRABO: ${(m.error ?? '').slice(0, 40).toUpperCase()}`);
+        else say(`NO SE GRABÓ:${(m.error ?? '').slice(0, 40).toUpperCase()}`);
         buzz(12);
         break;
       case 'stats':
@@ -191,7 +189,7 @@
     const forceTest = new URLSearchParams(location.search).get('source') === 'test';
     if (forceTest || !cameraSupported()) {
       send({ type: 'testSource' });
-      if (!forceTest) say('SIN CAMARA: CARTA DE AJUSTE');
+      if (!forceTest) say('SIN CÁMARA: CARTA DE AJUSTE');
       return;
     }
     try {
@@ -203,7 +201,7 @@
     } catch (e) {
       console.warn('camera', e);
       send({ type: 'testSource' });
-      say('SIN CAMARA: CARTA DE AJUSTE');
+      say('SIN CÁMARA: CARTA DE AJUSTE');
     }
   }
 
@@ -331,6 +329,11 @@
   const lens = $derived(source === 'test' ? 'TEST' : facing === 'user' ? 'FRON' : 'TRAS');
   const two = (n: number) => String(n).padStart(2, '0');
   const position = $derived(`${two(PRESETS.indexOf(active) + 1)}/${two(PRESETS.length)}`);
+
+  // the readouts sit just above the deck, whatever its height is
+  let deckH = $state(0);
+  // what the stamps say, for screen readers (they come and go too fast to be found)
+  const announcement = $derived(notice ?? stamp ?? (recording ? 'GRABANDO' : ''));
 </script>
 
 <main class="screen" class:misreg onpointerdowncapture={engage}>
@@ -344,7 +347,7 @@
   <button class="tag tc label" type="button" onclick={toggleGrade} aria-label="Revelado: {GRADES[grade]}. Toca para cambiar">
     <span class="swatch" class:violet={grade === 1}></span><span>{GRADES[grade]}</span>
   </button>
-  <button class="tag tr label cut-bl" type="button" onclick={statusTap} aria-label="Cámara activa">
+  <button class="tag tr label cut-bl" type="button" onclick={statusTap} aria-label="Cámara {lens}. Tres toques abren el HUD de depuración">
     <span class="led" class:on={source === 'camera'} class:rec={recording}></span><span>{lens}</span>
   </button>
 
@@ -355,9 +358,10 @@
   {/if}
   {#if stamp}<div class="stamp">{stamp}</div>{/if}
   {#if notice}<div class="notice label">{notice}</div>{/if}
+  <div class="sr" role="status">{announcement}</div>
 
   {#if gesture === 'drag' && (macros[0] || macros[1])}
-    <div class="readout">
+    <div class="readout" style:bottom="{deckH + 8}px">
       {#each macros.slice(0, 2) as m, i (i)}
         {#if m}
           <div class="cell cut-tr" class:a={i === 0}>
@@ -368,7 +372,7 @@
       {/each}
     </div>
   {:else if gesture === 'pinch'}
-    <div class="readout">
+    <div class="readout" style:bottom="{deckH + 8}px">
       <div class="cell cut-tr a">
         <span class="k label">ZOOM</span>
         <span class="v scan">{zoom.toFixed(1)}×</span>
@@ -391,7 +395,7 @@
     </div>
   {/if}
 
-  <div class="deck">
+  <div class="deck" bind:clientHeight={deckH}>
     <div class="rail" aria-hidden="true">
       <span class="pos label cut-bl">{position}</span>
     </div>
@@ -412,7 +416,7 @@
   </div>
 
   {#if fatal}
-    <div class="fatal">
+    <div class="fatal" role="alert">
       <div class="card"><p>{fatal}</p><span class="label scan">Chrome para Android con WebGPU</span></div>
     </div>
   {/if}
@@ -477,6 +481,26 @@
     left: 50%;
     transform: translateX(-50%);
     cursor: pointer;
+  }
+  /* the plates are 20px tall: the button reaches 14px past its edges so a thumb
+     can hit it. Not on .tr, whose clip-path would cut the extension off. */
+  .tc::after {
+    content: '';
+    position: absolute;
+    inset: -14px;
+  }
+  /* clip-path would cut an outline: draw it inside the plate instead */
+  button.tag:focus-visible {
+    outline: var(--stroke) solid var(--focus);
+    outline-offset: calc(var(--stroke) * -1);
+  }
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .swatch {
     width: 8px;
@@ -573,7 +597,7 @@
   .readout {
     position: absolute;
     left: var(--space-4);
-    bottom: calc(216px + env(safe-area-inset-bottom, 0px));
+    /* bottom comes from the measured deck height (see the markup) */
     display: flex;
     gap: var(--space-2);
     pointer-events: none;
