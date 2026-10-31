@@ -1262,11 +1262,12 @@ fn PASS(uv: vec2f, tracking: f32, noise: f32, bleed: f32, desync: f32) -> vec4f 
 // every line and frame) and decoded with a TV's cheap filters: chroma smears
 // sideways (`bleed`), and with `artifact` (0-1) fine luma detail turns
 // into rainbows and the subcarrier crawls over colour edges. Lines are flat
-// here; crt draws them as beams.
+// here; crt draws them as beams. `snow` scales the receiver noise (1 = the
+// usual hiss, more is a weak signal).
 def({
   name: 'composite',
   kind: 'filter',
-  params: [p('bleed', 1.5), p('artifact', 0.5)],
+  params: [p('bleed', 1.5), p('artifact', 0.5), p('snow', 1)],
   passes: [
     {
       inputs: ['in0'],
@@ -1275,7 +1276,7 @@ fn toYiq(c: vec3f) -> vec3f {
   return vec3f(dot(c, vec3f(0.299, 0.587, 0.114)), dot(c, vec3f(0.596, -0.274, -0.322)), dot(c, vec3f(0.211, -0.523, 0.312)));
 }
 
-fn PASS(uv: vec2f, bleed: f32, artifact: f32) -> vec4f {
+fn PASS(uv: vec2f, bleed: f32, artifact: f32, snow: f32) -> vec4f {
   let res = vec2f(textureDimensions(T0));
   let line = floor(uv.y * 480.0);
   let y = (line + 0.5) / 480.0;
@@ -1315,8 +1316,8 @@ fn PASS(uv: vec2f, bleed: f32, artifact: f32) -> vec4f {
     lum + 0.956 * chroma.x + 0.621 * chroma.y,
     lum - 0.272 * chroma.x - 0.647 * chroma.y,
     lum - 1.106 * chroma.x + 1.703 * chroma.y);
-  let snow = hash3(vec3f(FC, floor(G.time * 60.0))) - 0.5;
-  rgb += snow * (0.03 + 0.06 * art);
+  let grain = hash3(vec3f(FC, floor(G.time * 60.0))) - 0.5;
+  rgb += grain * (0.03 + 0.06 * art) * max(snow, 0.0);
   return vec4f(rgb, 1.0);
 }`,
     },
@@ -1324,25 +1325,28 @@ fn PASS(uv: vec2f, bleed: f32, artifact: f32) -> vec4f {
 });
 
 // Display: a cathode-ray tube. Curved glass (`curve`), 480 scanlines drawn
-// as beams that fatten on bright lines, an RGB aperture grille (`mask`),
-// dark corners. A magnet at (mx, my) (`magnet` 0-1) makes the lines near it
-// wave.
+// as beams that fatten on bright lines, an RGB aperture grille (`mask`), dark
+// corners. A magnet at (mx, my) (`magnet` 0-1) makes the lines near it
+// wave. `wave` (0-1) makes every line undulate sideways over the whole
+// screen, like hum bars rolling up a badly tuned set.
 def({
   name: 'crt',
   kind: 'filter',
-  params: [p('curve', 0.5), p('mask', 0.6), p('mx', 0.5), p('my', 0.5), p('magnet', 0)],
+  params: [p('curve', 0.5), p('mask', 0.6), p('mx', 0.5), p('my', 0.5), p('magnet', 0), p('wave', 0)],
   passes: [
     {
       inputs: ['in0'],
       wgsl: /* wgsl */ `
-fn PASS(uv: vec2f, curve: f32, mask: f32, mx: f32, my: f32, magnet: f32) -> vec4f {
+fn PASS(uv: vec2f, curve: f32, mask: f32, mx: f32, my: f32, magnet: f32, wave: f32) -> vec4f {
   let asp = G.res.x / G.res.y;
   let m = vec2f(mx, my);
   // the magnet makes the lines near it wave
   let toM = (uv - m) * vec2f(asp, 1.0);
   let k = clamp(magnet, 0.0, 1.0) * exp(-dot(toM, toM) / 0.05);
-  let wave = sin(uv.y * 70.0 - G.time * 9.0) + 0.5 * sin(uv.y * 23.0 + G.time * 4.0);
-  let p = uv + vec2f(wave * k * 0.012, 0.0);
+  let mWave = sin(uv.y * 70.0 - G.time * 9.0) + 0.5 * sin(uv.y * 23.0 + G.time * 4.0);
+  // undulation: slow swells rolling up, with a fine jitter riding them
+  let swell = sin(uv.y * 11.0 - G.time * 2.4) + 0.6 * sin(uv.y * 29.0 + G.time * 3.1) + 0.25 * sin(uv.y * 97.0 - G.time * 11.0);
+  let p = uv + vec2f(mWave * k * 0.012 + swell * clamp(wave, 0.0, 1.0) * 0.035, 0.0);
   // curved glass
   var q = p * 2.0 - 1.0;
   q += q * (q.yx * q.yx) * curve * 0.25;

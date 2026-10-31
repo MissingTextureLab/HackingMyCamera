@@ -97,10 +97,12 @@ const letra = effect({ id: 'letra', code: '31', name: 'Letra' }, (m) => {
 // bleeds, fine detail turns to rainbows, the subcarrier crawls) onto a
 // curved tube with scanlines and a phosphor grille. Your finger is a magnet
 // on the glass: the lines around it wave, and settle slowly when you let go.
+// The same drag also tunes the receiver (A noise, B undulation) as it moves the magnet.
 const senal = effect({ id: 'senal', code: '44', name: 'Señal' }, (m) => {
-  const v = cam().composite(1.5, 0.5);
-  const tv = v.crt(0.5, 0.6, 0.5, 0.5, 0);
-  // the drag is the magnet, so the only gesture is the twist
+  const v = cam().composite(1.5, 0.5, 1);
+  const tv = v.crt(0.5, 0.6, 0.5, 0.5, 0, 0);
+  m.macro('RUIDO', v, 'snow', 0, 8);
+  m.macro('ONDULACIÓN', tv, 'wave', 0, 1);
   m.twist('DIAFONÍA', v, 'artifact', 0, 1, [[v, 'bleed', 0.3, 2.7]]);
   m.mod(tv, 'mx', touch('x'), 0, 1, { smooth: 0.7 });
   m.mod(tv, 'my', touch('y'), 1, 0, { smooth: 0.7 });
@@ -118,38 +120,49 @@ const orden = effect({ id: 'orden', code: '50', name: 'Orden' }, (m) => {
   s.out(0);
 });
 
-/* ---------- 3D: a fixed, composed framing with a slow sway so the volume reads ---------- */
+/* ---------- 3D: a slow camera walks between the views where each volume reads best ---------- */
+// Yaw, pitch and distance run on LFOs with unrelated rates, so the path never
+// repeats exactly. The phase (3rd arg of lfo) starts each path at its home framing.
 
 // Relief: the image as terrain, drawn as ridge lines with hidden lines removed.
-// Low and frontal, like the Unknown Pleasures cover.
+// Home is low and frontal, like the Unknown Pleasures cover; the camera rises
+// to look down the valleys (the ridges separate) and swings to rake the slopes.
 const relieve = effect({ id: 'relieve', code: '60', name: 'Relieve' }, (m) => {
   const r = cam().blur(3).relief(0.5, 0, 0.3, 3, 1.6, 60);
   m.macro('ALTURA', r, 'height', 0, 1.2);
   m.macro('LÍNEAS', r, 'rows', 12, 140);
   m.macro('TRAZO', r, 'thickness', 0.5, 5);
-  m.mod(r, 'yaw', lfo('sine', 0.03), -0.08, 0.08);
+  m.mod(r, 'yaw', lfo('sine', 0.031, 0.25), -0.4, 0.4);
+  m.mod(r, 'pitch', lfo('sine', 0.019), 0.3, 0.85);
+  m.mod(r, 'dist', lfo('sine', 0.013, 0.25), 3.1, 4.3);
   r.out(0);
 });
 
-// Mass: a city of blocks, as tall as the image is bright. Isometric.
+// Mass: a city of blocks, as tall as the image is bright. Isometric at home;
+// the view turns around the corner (both street faces show) and tilts between
+// a skyline and a plan, so the towers and the grid between them both read.
 const ciudad = effect({ id: 'ciudad', code: '66', name: 'Ciudad' }, (m) => {
   const c = cam().blur(6).city(0.8, 0.785, 0.6155, 1.7, 0.15);
   m.macro('ALTURA', c, 'height', 0, 2);
   m.macro('ZOOM', c, 'zoom', 3, 0.8);
   m.macro('CALLES', c, 'gap', 0, 0.6);
-  m.mod(c, 'yaw', lfo('sine', 0.02), 0.72, 0.85);
+  m.mod(c, 'yaw', lfo('sine', 0.021, 0.25), 0.3, 1.27);
+  m.mod(c, 'pitch', lfo('sine', 0.014, 0.2), 0.42, 1.0);
   c.out(0);
 });
 
 // Carving: the image as a textured relief seen almost head-on; bright parts
 // come forward, sharp contrasts become walls and spikes, lights get a halo.
+// The camera leans over the relief and breathes in and out: parallax is what
+// turns the walls into walls. (B sets the yaw; the camera adds the rest.)
 const talla = effect({ id: 'talla', code: '69', name: 'Talla' }, (m) => {
   const t = cam().contrast(1.15).carve(0.6, -0.18, 0.12, 4.2, 1, 1);
   const glow = t.bloom(0.75, 0.9, 10);
   m.macro('PROFUNDIDAD', t, 'depth', 0, 1.6);
   m.macro('ÁNGULO', t, 'yaw', -0.8, 0.8);
   m.macro('AFILADO', t, 'sharp', 0.4, 3);
-  m.mod(t, 'pitch', lfo('sine', 0.03), 0.05, 0.2);
+  m.mod(t, 'pitch', lfo('sine', 0.027, 0.2), -0.2, 0.5);
+  m.mod(t, 'dist', lfo('sine', 0.017, 0.25), 2.5, 3.5);
   glow.out(0);
 });
 

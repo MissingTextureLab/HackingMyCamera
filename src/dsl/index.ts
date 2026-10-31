@@ -98,9 +98,9 @@ export class Chain {
   /** Feedback smoke: the image rises and swirls a little every frame, blurring as it ages. */
   smoke(amount?: number) { return this.un('smoke', [amount]); }
   /** Real composite video: encode and decode NTSC-style; chroma bleed, rainbows and dot crawl (`artifact`). */
-  composite(bleed?: number, artifact?: number) { return this.un('composite', [bleed, artifact]); }
+  composite(bleed?: number, artifact?: number, snow?: number) { return this.un('composite', [bleed, artifact, snow]); }
   /** Cathode-ray tube: curved glass, 480 scanline beams, aperture grille, and a magnet at (mx, my). */
-  crt(curve?: number, mask?: number, mx?: number, my?: number, magnet?: number) { return this.un('crt', [curve, mask, mx, my, magnet]); }
+  crt(curve?: number, mask?: number, mx?: number, my?: number, magnet?: number, wave?: number) { return this.un('crt', [curve, mask, mx, my, magnet, wave]); }
   /** Motion since `previous` (usually the last camera frame in a buffer): px per frame per 8 px block. */
   flow(previous: Chain) { return this.bin('flow', previous, []); }
   /** Datamosh: drags this along a `motion` map (from flow), a `block` of pixels at a time. */
