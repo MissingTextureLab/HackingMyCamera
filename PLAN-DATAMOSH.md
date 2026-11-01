@@ -1,6 +1,6 @@
 # Plan — Datamosh (FX-51 PÉRDIDA): port de `niccolofanton/data-mosh`
 
-Estado: F0–F3 hechas y verificadas en escritorio con la carta de ajuste; FX-51 PÉRDIDA está en la galería. Falta F4 (el móvil) y cerrar F5.
+Estado: F0–F4 hechas; FX-51 PÉRDIDA está en la galería y funciona en el Android real (2026-11-01). Queda cerrar F5 (MUDA).
 Reescrito el 2026-11-01. Complementa `PLAN.md` y `DESIGN.md`; si algo choca, mandan esos dos.
 
 Referencia: https://github.com/niccolofanton/data-mosh (carpeta `datamosh-demo/src/datamosh/`),
@@ -185,7 +185,7 @@ Notas de traducción GLSL → WGSL a vigilar:
 | **F1 — `motion`** *(hecha 2026-11-01: patrón de +21,3/+8,5 px por tick → mide +20/+8; a 35,6/14,2 → 32–34/14; quieto da 0 y el vector decae ×0,9 por tick)* | Block matching de dos niveles con memoria; `scope`; DSL de tres entradas | Con un patrón de movimiento conocido, el vector medio apunta en el sentido y con la magnitud esperados; quieto da 0; un movimiento grande (>30 px por tick) sigue dando vectores coherentes; al parar el vector decae. **Falta medirlo, no solo mirarlo** (lectura numérica de `o2`) |
 | **F2 — `decode`** *(escrita 2026-11-01; compila y derrite la imagen en el navegador; vistas de depuración y sectores perdidos sin comprobar a ojo)* | Traducción literal del shader a WGSL; preset con disparo manual (parámetro `recover`) | Con la carta de ajuste, forzando `recover = 0`: la imagen vieja se arrastra en bloques de 8 px por el movimiento nuevo; con `recover = 1` es la cámara. Las vistas de depuración (campo y flechas) coinciden con las del original. Los sectores perdidos aparecen. Sin tick no cambia nada |
 | **F3 — Disparador** *(hecha 2026-11-01: canales `touch('hold')` y `touch('lost')`; dispara cualquier dedo, pellizco incluido, como el `pointerdown` del original; preset en la galería; la É del sello se escribe como E)* | Canales `hold` y `lost`; macros; decisión sobre el pellizco | Mantener el dedo derrite; soltar recupera en 370 ms; los sectores aparecen a los 300 ms; el primer toque no cambia el aspecto por culpa de las macros |
-| **F4 — Móvil** | Prueba por túnel en el Android real | ≥30 fps con el HUD; se lee bien a través de ÁCIDO y MORADO; el block matching da vectores utilizables con cámara real (esta es la parte que más puede fallar) |
+| **F4 — Móvil** *(hecha 2026-11-01: probado por túnel en el Android; funciona bien según el usuario; fps y ms de GPU sin anotar)* | Prueba por túnel en el Android real | ≥30 fps con el HUD; se lee bien a través de ÁCIDO y MORADO; el block matching da vectores utilizables con cámara real (esta es la parte que más puede fallar) |
 | **F5 — Documentar** | `NOTICE` con la licencia MIT, cabecera en el op, DESIGN.md (12 preguntas), PLAN.md, CLAUDE.md (la regla "sin código de hydra-synth" sigue; este es MIT y se cita), decisión sobre MUDA | `pnpm test`, `pnpm check` y `pnpm build` en verde |
 
 ### Verificación

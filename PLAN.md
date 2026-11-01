@@ -19,7 +19,7 @@ Estado (2026-10-30):
   - Hecho y verificado con el build de producción: PWA instalable (manifest a pantalla completa en vertical, icono propio en la identidad), service worker que precachea app, worker y fuentes, y fuentes empaquetadas sin Google Fonts. Funciona sin conexión.
   - Desplegada en GitHub Pages: https://missingtexturelab.github.io/HackingMyCamera/ (repo público `MissingTextureLab/HackingMyCamera`, una Action publica en cada push a `main`).
   - Revisión de la galería (2026-10-30): los 13 efectos rehechos para que cada uno responda a una sola cuestión visual (ver DESIGN.md, "La galería"); escenas 3D con encuadre fijo y balanceo; primer procesador de cómputo (ORDEN).
-  - FX-51 PÉRDIDA (2026-11-01): datamosh, port del decodificador de niccolofanton/data-mosh con vectores medidos en la cámara; verificado en escritorio con la carta de ajuste, pendiente de probar en el móvil. Ver `PLAN-DATAMOSH.md`.
+  - FX-51 PÉRDIDA (2026-11-01): datamosh, port del decodificador de niccolofanton/data-mosh con vectores medidos en la cámara; verificado en escritorio con la carta de ajuste y probado en el Android real. Ver `PLAN-DATAMOSH.md`.
   - Pendiente: cajón de parámetros.
 - **Fuera del alcance por decisión del usuario:** micrófono, tanto como señal como audio en la grabación.
 - Identidad visual: `DESIGN.md`.
