@@ -8,7 +8,7 @@ export type ToWorker =
   | { type: 'init'; canvas: OffscreenCanvas; width: number; height: number }
   | { type: 'frames'; stream: ReadableStream<VideoFrame>; mirror: boolean }
   | { type: 'frame'; frame: VideoFrame; mirror: boolean }
-  | { type: 'testSource' }
+  | { type: 'testSource'; camFps?: number }
   | { type: 'resize'; width: number; height: number }
   | { type: 'effect'; graph: EffectGraph }
   | { type: 'param'; slot: number; value: number }

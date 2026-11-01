@@ -155,7 +155,7 @@ Las únicas rupturas permitidas, cada una ligada a un evento:
 
 El sello es el único elemento que puede girar fuera del ángulo recto, y solo `stamp-angle`. Lo dibuja el mismo motor que los efectos, así que hereda el efecto activo.
 
-## La galería: once preguntas visuales
+## La galería: doce preguntas visuales
 
 Cada efecto trata una sola cuestión de lo visual. Si dos efectos responden a la misma pregunta, sobra uno.
 
@@ -169,6 +169,7 @@ Cada efecto trata una sola cuestión de lo visual. Si dos efectos responden a la
 | FX-31 | LETRA | Tipografía | la imagen escrita con caracteres reales de Martian Mono, ordenados por densidad; letras grandes donde la imagen está tranquila y pequeñas donde hay detalle, los contornos dibujados con trazos (- \ | /) que los siguen, y un brillo leve en las letras claras |
 | FX-44 | SEÑAL | Vídeo analógico | tele antigua: señal compuesta real (color corrido, arcoíris en el detalle fino, dot crawl) sobre un tubo curvo con líneas de barrido y rejilla de fósforo; el dedo es un imán que hace ondular las líneas a su alrededor, y al soltar se calman despacio |
 | FX-50 | ORDEN | Glitch digital | pixel sorting real, calculado en la GPU con un compute shader |
+| FX-51 | PÉRDIDA | Compresión | datamosh: un decodificador de vídeo al que no le llega el fotograma clave; mientras mantienes el dedo, la imagen que tenías la arrastran en macrobloques los vectores de movimiento medidos en la cámara, con bloques que se congelan y se pierden; al soltar vuelve la imagen real en 370 ms (port de niccolofanton/data-mosh, ver NOTICE.md) |
 | FX-60 | RELIEVE | Relieve | terreno de líneas de cresta, encuadre frontal y bajo; número de líneas como gesto |
 | FX-66 | CIUDAD | Masa | bloques en vista isométrica, tan altos como brillante es la imagen |
 | FX-69 | TALLA | Talla | la imagen como relieve texturizado, casi de frente: lo brillante avanza, los contrastes se vuelven paredes y púas; halo en las luces |

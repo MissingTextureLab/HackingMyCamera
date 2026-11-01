@@ -10,7 +10,7 @@ import { arity, OPS } from '../ops/registry';
 
 export const FORMAT_VERSION = 1;
 const LFO_SHAPES = ['sine', 'tri', 'saw', 'square', 'random', 'noise'];
-const TOUCH_CHANNELS = ['x', 'y', 'down', 'vx', 'vy', 'count', 'pinch'];
+const TOUCH_CHANNELS = ['x', 'y', 'down', 'vx', 'vy', 'count', 'pinch', 'hold', 'lost'];
 const ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const NODE_ID = /^[A-Za-z0-9_]{1,40}$/;
 

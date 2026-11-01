@@ -93,6 +93,8 @@ export class Chain {
   add(other: Chain, amount?: number) { return this.bin('add', other, [amount]); }
   mult(other: Chain, amount?: number) { return this.bin('mult', other, [amount]); }
   diff(other: Chain) { return this.bin('diff', other, []); }
+  /** This on frames with a new camera frame, `held` (usually a buffer holding this) on the rest. */
+  latch(held: Chain) { return this.bin('latch', held, []); }
   /** Per channel max(this, other * amount). */
   lighten(other: Chain, amount?: number) { return this.bin('lighten', other, [amount]); }
   /** Feedback smoke: the image rises and swirls a little every frame, blurring as it ages. */
@@ -105,6 +107,22 @@ export class Chain {
   flow(previous: Chain) { return this.bin('flow', previous, []); }
   /** Datamosh: drags this along a `motion` map (from flow), a `block` of pixels at a time. */
   mosh(motion: Chain, drag?: number, block?: number) { return this.bin('mosh', motion, [drag, block]); }
+  /**
+   * Block-matching motion of this (the camera) against `previous` (the camera at the last tick,
+   * `cam().latch(o(3))`): one vector per 16 px block, kept in `state` (the buffer it is written to,
+   * usually o(2)) between ticks. See `motion` in the registry for how to read the result.
+   */
+  motion(previous: Chain, state: Chain, sustain?: number, calm?: number) {
+    return this.builder.add('motion', [this, previous, state], [sustain, calm]);
+  }
+  /** Debug view: this image dimmed, with an arrow per block along the `motion` map. */
+  scope(motion: Chain, gain?: number) { return this.bin('scope', motion, [gain]); }
+  /**
+   * Datamosh decoder (port of niccolofanton/data-mosh): this is the camera, `history` the buffer
+   * the result is written back to (the reference frame), `motion` the map from `motion`.
+   * Every uniform of the original is a param, with its default; drive `recover` with the trigger.
+   */
+  decode(history: Chain, motion: Chain) { return this.builder.add('decode', [this, history, motion], []); }
   /** Colours a grey freshness buffer by age: green while fresh, dim purple past `knee`. */
   aging(knee?: number) { return this.un('aging', [knee]); }
 

@@ -224,6 +224,8 @@ class Stage {
   stamp = false;
   private presentGroups = new Map<string, GPUBindGroup>();
   private frame = 0;
+  /** Last `Engine.camVersion` this stage rendered with; -1 makes the next frame a tick. */
+  private seenCam = -1;
 
   constructor(
     private e: Engine,
@@ -267,6 +269,8 @@ class Stage {
     if (old) for (const t of [...old.temps.values(), ...old.depths.values()]) t.destroy();
     this.paramsData.set(loaded.compiled.values);
     this.paramsDirty = true;
+    // the first frame of an effect counts as a camera tick, so stateful ones can seed themselves
+    this.seenCam = -1;
     // clear feedback so the new effect starts clean
     const enc = this.e.device.createCommandEncoder();
     for (const pair of this.outputs) {
@@ -302,7 +306,7 @@ class Stage {
     g[4] = (camAspect > outAspect ? outAspect / camAspect : 1) / this.e.zoom;
     g[5] = (camAspect > outAspect ? 1 : camAspect / outAspect) / this.e.zoom;
     g[6] = this.e.mirror ? 1 : 0;
-    g[7] = 0;
+    // g[7] (the camera tick) is set per frame in encode()
   }
 
   /** Encodes this stage's passes and its present into `enc`. */
@@ -313,6 +317,10 @@ class Stage {
     const g = this.globalsData;
     g[0] = time;
     g[1] = dt;
+    // 1 when a camera frame arrived since this stage last rendered. Per stage, because
+    // thumbnails render round-robin and each one sees the camera change between its own frames.
+    g[7] = this.e.camVersion !== this.seenCam ? 1 : 0;
+    this.seenCam = this.e.camVersion;
     d.queue.writeBuffer(this.globals, 0, g);
     if (this.paramsDirty) {
       d.queue.writeBuffer(this.params, 0, this.paramsData);
@@ -488,6 +496,11 @@ export class Engine {
   camSize: [number, number] = [0, 0];
   mirror = false;
   zoom = 1;
+  /** Counts camera frames (real uploads or test-card renders); stages turn it into G.camFit.w. */
+  camVersion = 0;
+  /** Test card only: render a new "camera frame" every N render frames (1 = every frame). */
+  private testDivider = 1;
+  private testFrame = 0;
   /** Revelado mode, shared by every stage: 0 ÁCIDO, 1 MORADO. */
   grade = 0;
 
@@ -623,15 +636,24 @@ export class Engine {
     }
     try {
       this.device.queue.copyExternalImageToTexture({ source: frame }, { texture: this.cam }, [w, h]);
+      this.camVersion++;
     } finally {
       frame.close();
     }
   }
 
+  /** Test card at `fps` camera frames per second on a 60 fps render loop (0 = every render frame). */
+  setTestCamFps(fps: number) {
+    this.testDivider = fps > 0 ? Math.max(1, Math.round(60 / fps)) : 1;
+  }
+
   /** Renders the test card into the camera texture (no real camera). */
   renderTestCard(time: number) {
     const [w, h] = [720, 1280];
-    if (this.camSize[0] !== w || this.camSize[1] !== h) {
+    const resized = this.camSize[0] !== w || this.camSize[1] !== h;
+    // like a real camera, the picture only changes on its own frames
+    if (!resized && this.testFrame++ % this.testDivider !== 0) return;
+    if (resized) {
       this.mirror = false;
       this.replaceCam(w, h);
     }
@@ -645,6 +667,7 @@ export class Engine {
     pass.draw(3);
     pass.end();
     this.device.queue.submit([enc.finish()]);
+    this.camVersion++;
   }
 
   /** Compiles and swaps in an effect on the viewfinder. The old one runs until pipelines are ready. */

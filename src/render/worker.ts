@@ -140,6 +140,7 @@ scope.addEventListener('message', async (e) => {
         else msg.frame.close();
         break;
       case 'testSource':
+        engine?.setTestCamFps(msg.camFps ?? 0);
         await reader?.cancel().catch(() => {});
         reader = null;
         source = 'test';

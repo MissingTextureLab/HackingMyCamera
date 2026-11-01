@@ -17,7 +17,8 @@
 //                 read through generated accessors p_<name>(). See SCENE_PRELUDE.
 //   processor     a compute shader writing its own texture (OpDef.compute).
 //
-// Module-scope names available to snippets: G (globals: time, dt, res, camFit),
+// Module-scope names available to snippets: G (globals: time, dt, res, camFit;
+// camFit.w is 1 on frames where a new camera frame arrived, see `latch`),
 // FC (fragment coordinate in pixels), PI, TAU, hash3, vnoise, luma,
 // rgb2hsv, hsv2rgb, bayer4, CITRINK.
 //
@@ -406,6 +407,20 @@ fn op_diff(a: vec4f, b: vec4f) -> vec4f {
 }`,
 });
 
+// Camera tick: `a` on a frame where a new camera frame arrived for this stage
+// (G.camFit.w), `b` otherwise. Camera frames come at ~30 fps and the render
+// loop runs at 60, so cam().latch(o(i)).out(i) keeps buffer i as "the camera at
+// the last tick" and stateful effects can step once per camera frame.
+def({
+  name: 'latch',
+  kind: 'combine',
+  params: [],
+  wgsl: /* wgsl */ `
+fn op_latch(a: vec4f, b: vec4f) -> vec4f {
+  return select(b, a, G.camFit.w > 0.5);
+}`,
+});
+
 /* ---------- modulation (coordinates driven by another texture) ---------- */
 
 def({
@@ -740,6 +755,547 @@ fn PASS(uv: vec2f, drag: f32, block: f32) -> vec4f {
   let cell = (floor(uv * res / b) + 0.5) * b / res;
   let v = textureSampleLevel(T1, samp, cell, 0.0).xy;
   return textureSampleLevel(T0, samp, uv - v * drag / res, 0.0);
+}`,
+    },
+  ],
+});
+
+// Motion vectors travel in textures as (+x, +y, -x, -y) / 4, in output pixels:
+// a pass result is clamped to 0..64, so negatives need their own channels, and
+// a cleared buffer (all 0) reads as "no motion". They live on a grid of 16 px
+// blocks; mvGrid() rounds like the engine does when it sizes the 1/16 temp.
+const MV_WGSL = /* wgsl */ `
+fn mvEncode(v: vec2f) -> vec4f {
+  return vec4f(max(v, vec2f(0.0)), max(-v, vec2f(0.0))) * 0.25;
+}
+
+fn mvDecode(t: vec4f) -> vec2f {
+  return (t.xy - t.zw) * 4.0;
+}
+
+fn mvGrid() -> vec2f {
+  return max(vec2f(2.0), floor(G.res / 16.0 + 0.5));
+}`;
+
+// Motion: block matching, the way a video codec finds its motion vectors. One
+// vector per 16 px block says where that block's content went since the last
+// camera tick: cur(x) ~ prev(x - v). It is measured on half-resolution luma by
+// SAD over a 4x4 sample grid per block, in two levels (169 coarse candidates
+// ~4 px apart, then a fine search around the winner), and a block only moves if
+// it beats standing still by `calm` (sensor noise is not motion). The block's
+// previous vector is also a candidate, like a codec's temporal predictor.
+// Vectors are kept between ticks (in2 = o(2), which this op's result is
+// written to) and, when the block stops moving, decay by `sustain` per tick,
+// so a moved picture keeps sliding for a while. Everything only changes on
+// camera ticks (G.camFit.w, see `latch`). The result is full resolution and
+// constant per block, so it can be read with textureLoad at any pixel.
+// in0 = the camera, in1 = the camera at the last tick, in2 = last tick's vectors.
+def({
+  name: 'motion',
+  kind: 'filter',
+  inputs: 3,
+  params: [p('sustain', 0.9), p('calm', 0.012)],
+  passes: [
+    // p0: luma of both frames at half resolution (a bilinear tap is a 2x2 box)
+    {
+      inputs: ['in0', 'in1'],
+      scale: 0.5,
+      wgsl: /* wgsl */ `
+fn PASS(uv: vec2f, sustain: f32, calm: f32) -> vec4f {
+  return vec4f(lumaAt(T0, uv), lumaAt(T1, uv), 0.0, 1.0);
+}`,
+    },
+    // p1: one texel per 16 px block, the search
+    {
+      inputs: ['p0', 'in2'],
+      scale: 0.0625,
+      wgsl: `${MV_WGSL}
+
+var<private> CUR: array<f32, 16>;
+var<private> SPOS: array<vec2i, 16>;
+
+fn sad(v: vec2i) -> f32 {
+  let hi = vec2i(textureDimensions(T0)) - vec2i(1);
+  var s = 0.0;
+  for (var k = 0; k < 16; k++) {
+    s += abs(CUR[k] - textureLoad(T0, clamp(SPOS[k] - v, vec2i(0), hi), 0).g);
+  }
+  return s / 16.0;
+}
+
+fn PASS(uv: vec2f, sustain: f32, calm: f32) -> vec4f {
+  if (G.camFit.w < 0.5) { return vec4f(0.0); }
+  let n = mvGrid();
+  let b = floor(uv * n);
+  let hd = vec2f(textureDimensions(T0));
+  for (var k = 0; k < 16; k++) {
+    let cell = vec2f(f32(k % 4), f32(k / 4));
+    let q = vec2i(floor((b + (cell + 0.5) / 4.0) / n * hd));
+    SPOS[k] = q;
+    CUR[k] = textureLoad(T0, q, 0).r;
+  }
+  // the block's last vector, in half-resolution pixels
+  let res = vec2i(G.res);
+  let centre = clamp(vec2i((b + 0.5) / n * G.res), vec2i(0), res - vec2i(1));
+  let last = vec2i(round(mvDecode(textureLoad(T1, centre, 0)) * 0.5));
+
+  var best = vec2i(0);
+  var bestCost = sad(best) - calm;
+  if (any(last != vec2i(0))) {
+    let c = sad(last) - calm * 0.5;
+    if (c < bestCost) { best = last; bestCost = c; }
+  }
+  // coarse: 13 x 13 candidates; the spacing follows the render height
+  let stride = max(1, i32(floor(4.0 * G.res.y / 1280.0 + 0.5)));
+  for (var j = -6; j <= 6; j++) {
+    for (var i = -6; i <= 6; i++) {
+      let v = vec2i(i, j) * stride;
+      if (all(v == vec2i(0))) { continue; }
+      let c = sad(v) + 0.0001 * length(vec2f(v));
+      if (c < bestCost) { best = v; bestCost = c; }
+    }
+  }
+  // fine: around the winner, one pixel at a time
+  let r = max(2, stride / 2 + 1);
+  let around = best;
+  for (var j = -r; j <= r; j++) {
+    for (var i = -r; i <= r; i++) {
+      let v = around + vec2i(i, j);
+      if (all(v == around)) { continue; }
+      let c = sad(v) + 0.0001 * length(vec2f(v));
+      if (c < bestCost) { best = v; bestCost = c; }
+    }
+  }
+  return mvEncode(vec2f(best) * 2.0);
+}`,
+    },
+    // p2: full resolution, block-constant, with the memory
+    {
+      inputs: ['p1', 'in2'],
+      wgsl: `${MV_WGSL}
+
+fn PASS(uv: vec2f, sustain: f32, calm: f32) -> vec4f {
+  let res = vec2i(G.res);
+  let held = mvDecode(textureLoad(T1, clamp(vec2i(FC), vec2i(0), res - vec2i(1)), 0));
+  if (G.camFit.w < 0.5) { return mvEncode(held); }
+  let found = mvDecode(textureLoad(T0, vec2i(floor(uv * mvGrid())), 0));
+  var v = held * sustain;
+  if (any(found != vec2f(0.0))) { v = mix(held, found, 0.7); }
+  if (length(v) < 0.1) { v = vec2f(0.0); }
+  return mvEncode(v);
+}`,
+    },
+  ],
+});
+
+// Debug view of a motion map (in1) over the image (in0): the image dimmed, and
+// in every 16 px block an arrow along its vector, brighter the faster it moves.
+def({
+  name: 'scope',
+  kind: 'filter',
+  inputs: 2,
+  params: [p('gain', 1)],
+  passes: [
+    {
+      inputs: ['in0', 'in1'],
+      wgsl: `${MV_WGSL}
+
+// x: distance to the segment a-b, y: how far along it (0 at a, 1 at b)
+fn seg(p: vec2f, a: vec2f, b: vec2f) -> vec2f {
+  let pa = p - a;
+  let ba = b - a;
+  let h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
+  return vec2f(length(pa - ba * h), h);
+}
+
+fn PASS(uv: vec2f, gain: f32) -> vec4f {
+  let img = textureSampleLevel(T0, samp, uv, 0.0).rgb;
+  let n = mvGrid();
+  let blk = G.res / n;
+  let b = floor(uv * n);
+  let centre = (b + 0.5) * blk;
+  let res = vec2i(G.res);
+  let v = mvDecode(textureLoad(T1, clamp(vec2i(FC), vec2i(0), res - vec2i(1)), 0));
+  let len = length(v);
+  // arrows are shortened to stay inside their block
+  let reach = min(len * gain, min(blk.x, blk.y) * 0.45);
+  let tipPos = centre + select(vec2f(0.0), v / max(len, 1e-4) * reach, len > 0.01);
+  let along = seg(FC, centre, tipPos);
+  let stroke = 1.0 - smoothstep(0.7, 1.5, along.x);
+  let moving = select(0.0, 1.0, len > 0.5);
+  let spot = 1.0 - smoothstep(1.2, 2.2, length(FC - centre));
+  // dim at the tail, bright at the tip: that is the way it points
+  let ink = mix(CITRINK[4], CITRINK[6], clamp(len / 24.0, 0.0, 1.0)) * (0.35 + 0.65 * along.y);
+  return vec4f(mix(img * 0.45, ink, max(stroke * moving, spot * 0.5)), 1.0);
+}`,
+    },
+  ],
+});
+
+// Datamosh decoder: a WGSL port of `mainImageShader` from
+// https://github.com/niccolofanton/data-mosh (datamosh-demo/src/datamosh/shaders.ts),
+// MIT licence, Copyright (c) 2026 Niccolò Fanton. See NOTICE.md.
+//
+//   new frame = warp(previous frame, motion vectors) + residual
+//
+// The port keeps the original's uniform names, steps and defaults (debug.ts).
+// What differs: the motion. The original renders it from its 3D scene (a
+// velocity pass, plus camera motion through the depth buffer); here it is
+// measured from the camera by `motion` (block matching on a 16 px grid), so
+// the camera/depth fallback and the parallax control are gone. And it steps
+// once per camera frame (G.camFit.w, see `latch`): between ticks the picture
+// holds. Uniforms are params here, copied into private globals so the body
+// reads like the original. uTime is in ms, like performance.now() there.
+// in0 = the camera (inputBuffer), in1 = this op's own last output, kept in a
+// buffer (pFrame), in2 = the motion map (from `motion`).
+def({
+  name: 'decode',
+  kind: 'filter',
+  inputs: 3,
+  params: [
+    p('motionGain', 1.5),
+    p('blockSize', 8),
+    p('blockiness', 1),
+    p('mvPrecision', 2),
+    p('skipThreshold', 0),
+    p('mismatch', 0),
+    p('frozenBlocks', 1),
+    p('lostLayers', 4),
+    p('lostLife', 50),
+    p('lostScale', 2.65),
+    p('lostAspect', 0.75),
+    p('lostVariance', 1),
+    // the original panel carries it at ten times its value: 4 → 0.4
+    p('residualGain', 0.4),
+    p('residualQuant', 14),
+    // 1 = the honest picture; 0 while the trigger is held
+    p('recover', 1),
+    p('keyframe', 0),
+    // 0 for the first 300 ms of a gesture, then 1: multiplies frozenBlocks
+    p('lost', 0),
+    p('debugMotion', 0),
+    p('debugScale', 8),
+    p('debugField', 1),
+    p('debugArrows', 1),
+    p('showMotionArrows', 0),
+    p('showLostSectors', 0),
+  ],
+  passes: [
+    {
+      inputs: ['in0', 'in1', 'in2'],
+      wgsl: `${MV_WGSL}
+
+var<private> uTime: f32;
+var<private> uRecover: f32;
+var<private> uKeyframe: f32;
+var<private> uMotionGain: f32;
+var<private> uBlockSize: f32;
+var<private> uBlockiness: f32;
+var<private> uMvPrecision: f32;
+var<private> uSkipThreshold: f32;
+var<private> uMismatch: f32;
+var<private> uFrozenBlocks: f32;
+var<private> uLostLayers: f32;
+var<private> uLostLife: f32;
+var<private> uLostScale: f32;
+var<private> uLostAspect: f32;
+var<private> uLostVariance: f32;
+var<private> uResidualGain: f32;
+var<private> uResidualQuant: f32;
+var<private> uDebugMotion: f32;
+var<private> uDebugScale: f32;
+var<private> uShowLostSectors: f32;
+var<private> uDebugField: f32;
+var<private> uDebugArrows: f32;
+var<private> uShowMotionArrows: f32;
+var<private> resolution: vec2f;
+// pFrame is the same size as the pass here, but the taps stay in its own texels
+var<private> uHistoryResolution: vec2f;
+
+// Hashes keyed on (block id, slot): every block decides its own fate
+// without any per-block state to store.
+fn hash13(q: vec3f) -> f32 {
+  var p3 = fract(q * 0.1031);
+  p3 += dot(p3, p3.zyx + 31.32);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+fn hash23(q: vec3f) -> vec2f {
+  var p3 = fract(q * vec3f(0.1031, 0.1030, 0.0973));
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.xx + p3.yz) * p3.zy);
+}
+
+// GLSL mod (WGSL has none)
+fn fmod3(x: vec3f, y: f32) -> vec3f {
+  return x - y * floor(x / y);
+}
+
+// Packet loss. Rectangles on a few overlapping grids blink in and out on
+// their own clocks; a pixel inside one keeps its old content instead of
+// being warped. Returns (inside the sector, on its border).
+fn lostRegion(uv: vec2f) -> vec2f {
+  if (uFrozenBlocks <= 0.0) { return vec2f(0.0); }
+
+  for (var fi = 0.0; fi < 4.0; fi += 1.0) {
+    if (fi >= uLostLayers) { break; }
+
+    let scale = vec2f(7.0, 5.0) * (1.0 + fi * 1.6) / max(uLostScale, 0.05);
+    let p = uv * scale;
+    let cellId = floor(p);
+
+    // Each cell holds one rectangle per time slot, and only for the
+    // first fraction of that slot: that is the blink.
+    let t = uTime / max(uLostLife, 16.0) + hash13(vec3f(cellId, fi + 5.0));
+    let slot = floor(t);
+    if (hash13(vec3f(cellId, slot * 7.0 + fi)) > uFrozenBlocks) { continue; }
+
+    let centre = 0.2 + hash23(vec3f(cellId, slot + fi * 23.0)) * 0.6;
+    let halfSize = (0.05 + hash23(vec3f(cellId, slot + fi * 41.0)) * vec2f(0.45, 0.26) * uLostVariance)
+                   * vec2f(uLostAspect, 1.0 / max(uLostAspect, 0.05));
+
+    let d = abs(fract(p) - centre) - halfSize;
+    if (any(d > vec2f(0.0))) { continue; }
+    if (fract(t) > 0.12 + hash13(vec3f(cellId, slot + 61.0)) * 0.45) { continue; }
+
+    // Inside a box the signed distance to its edge is exactly max(d.x, d.y);
+    // converted to pixels, one macroblock of it is the ring of blocks that froze.
+    let edge = d / scale * resolution;
+    return vec2f(1.0, step(-max(uBlockSize, 2.0), max(edge.x, edge.y)));
+  }
+
+  return vec2f(0.0);
+}
+
+// Not in the original: the camera's motion map, one vector per 16 px block,
+// read at the block centres around the sample and blended, so a smooth field
+// still exists for blockiness < 1. In uv units, like the original velocity.
+fn fieldAt(b: vec2f) -> vec2f {
+  let n = mvGrid();
+  let bc = clamp(b, vec2f(0.0), n - 1.0);
+  let res = vec2i(G.res);
+  let px = clamp(vec2i((bc + 0.5) / n * G.res), vec2i(0), res - vec2i(1));
+  return mvDecode(textureLoad(T2, px, 0));
+}
+
+fn rawMotionAt(sampleUV: vec2f) -> vec2f {
+  let g = sampleUV * mvGrid() - 0.5;
+  let b0 = floor(g);
+  let f = g - b0;
+  let v = mix(mix(fieldAt(b0), fieldAt(b0 + vec2f(1.0, 0.0)), f.x),
+              mix(fieldAt(b0 + vec2f(0.0, 1.0)), fieldAt(b0 + vec2f(1.0, 1.0)), f.x), f.y);
+  return v / resolution;
+}
+
+// Catmull-Rom read of the previous frame, 9 taps instead of 16 by riding the
+// hardware bilinear filter: a plain bilinear read fed back every frame would
+// melt the picture into mush.
+fn sampleHistory(uv: vec2f) -> vec3f {
+  let samplePos = uv * uHistoryResolution;
+  let texPos1 = floor(samplePos - 0.5) + 0.5;
+  let f = samplePos - texPos1;
+
+  let w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+  let w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+  let w3 = f * f * (-0.5 + 0.5 * f);
+  let w12 = 1.0 + f * f * (-2.5 + 1.5 * f) + w2;
+  let offset12 = w2 / max(w12, vec2f(1e-5));
+
+  // The middle tap of each axis sits off-centre so one bilinear fetch covers
+  // the two inner samples at once.
+  let px = (texPos1.x + vec3f(-1.0, offset12.x, 2.0)) / uHistoryResolution.x;
+  let py = (texPos1.y + vec3f(-1.0, offset12.y, 2.0)) / uHistoryResolution.y;
+  let wx = vec3f(w0.x, w12.x, w3.x);
+  let wy = vec3f(w0.y, w12.y, w3.y);
+
+  var result = vec3f(0.0);
+  for (var y = 0; y < 3; y++) {
+    for (var x = 0; x < 3; x++) {
+      result += textureSampleLevel(T1, samp, vec2f(px[x], py[y]), 0.0).rgb * (wx[x] * wy[y]);
+    }
+  }
+
+  return clamp(result, vec3f(0.0), vec3f(1.0));
+}
+
+// The correction a real stream carries next to the vectors: the high
+// frequencies of the honest picture minus those of the prediction, only where
+// the honest one is sharper, quantised hard (the DCT dead zone ringing).
+fn residualAt(uv: vec2f, motion: vec2f, current: vec3f, predicted: vec3f) -> vec3f {
+  let r = vec2f(1.5) / resolution;
+
+  var lowCurrent = textureSampleLevel(T0, samp, uv + vec2f(r.x, 0.0), 0.0).rgb;
+  lowCurrent += textureSampleLevel(T0, samp, uv - vec2f(r.x, 0.0), 0.0).rgb;
+  lowCurrent += textureSampleLevel(T0, samp, uv + vec2f(0.0, r.y), 0.0).rgb;
+  lowCurrent += textureSampleLevel(T0, samp, uv - vec2f(0.0, r.y), 0.0).rgb;
+
+  // Same 1.5-texel ring, but in the history's own texels.
+  let rh = vec2f(1.5) / uHistoryResolution;
+
+  let p = uv - motion;
+  var lowPredicted = textureSampleLevel(T1, samp, clamp(p + vec2f(rh.x, 0.0), vec2f(0.002), vec2f(0.998)), 0.0).rgb;
+  lowPredicted += textureSampleLevel(T1, samp, clamp(p - vec2f(rh.x, 0.0), vec2f(0.002), vec2f(0.998)), 0.0).rgb;
+  lowPredicted += textureSampleLevel(T1, samp, clamp(p + vec2f(0.0, rh.y), vec2f(0.002), vec2f(0.998)), 0.0).rgb;
+  lowPredicted += textureSampleLevel(T1, samp, clamp(p - vec2f(0.0, rh.y), vec2f(0.002), vec2f(0.998)), 0.0).rgb;
+
+  let hc = dot(current - lowCurrent * 0.25, vec3f(0.299, 0.587, 0.114));
+  let hp = dot(predicted - lowPredicted * 0.25, vec3f(0.299, 0.587, 0.114));
+  let steps = max(uResidualQuant, 1.0);
+
+  return vec3f(floor(select(0.0, hc - hp, abs(hc) > abs(hp)) * steps + 0.5) / steps);
+}
+
+// A motion vector drawn the way a codec debugger draws it: the shaft and two
+// barbs folded back from the tip. p is in the cell's own frame, x along the motion.
+fn sdSegment(p: vec2f, a: vec2f, b: vec2f) -> f32 {
+  let pa = p - a;
+  let ba = b - a;
+  return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0));
+}
+
+fn sdArrow(p: vec2f, len: f32) -> f32 {
+  let tip = vec2f(len, 0.0);
+  let barb = vec2f(0.42, 0.42) * len;
+  return min(sdSegment(p, vec2f(-len, 0.0), tip),
+             min(sdSegment(p, tip, tip - barb), sdSegment(p, tip, tip - barb * vec2f(1.0, -1.0))));
+}
+
+// Coverage of the cell's arrow at this pixel. Arrows are thinned to whole
+// blocks until a cell is around 48 px; the vector is read at the cell centre.
+fn arrowAt(uv: vec2f, blocks: vec2f, blockId: vec2f) -> f32 {
+  let span = max(floor(48.0 / max(uBlockSize, 1.0) + 0.5), 1.0);
+  let cellId = floor(blockId / span) * span;
+  let cellMotion = rawMotionAt((cellId + span * 0.5) / blocks) * uMotionGain * resolution;
+
+  let speed = length(cellMotion);
+  let reach = clamp(speed / max(uDebugScale, 0.01), 0.0, 1.0);
+  let dir = select(vec2f(1.0, 0.0), cellMotion / max(speed, 1e-4), speed > 1e-4);
+
+  // Into the cell's own frame: x along the motion, y across it.
+  var inCell = ((uv * blocks - cellId) / span - 0.5) * 2.0;
+  inCell = vec2f(dot(inCell, dir), dot(inCell, vec2f(-dir.y, dir.x)));
+
+  // One pixel in those units, so the stroke stays one pixel wide.
+  let px = 2.0 * blocks.x / (span * resolution.x);
+  return (1.0 - smoothstep(-px, px, sdArrow(inCell, 0.15 + reach * 0.7) - px)) * step(0.02, reach);
+}
+
+// Arrows over a picture whose palette we do not control: the plain negative.
+fn withArrows(colour: vec3f, coverage: f32) -> vec3f {
+  return mix(colour, 1.0 - colour, coverage);
+}
+
+fn PASS(uv: vec2f, motionGain: f32, blockSize: f32, blockiness: f32, mvPrecision: f32,
+        skipThreshold: f32, mismatch: f32, frozenBlocks: f32, lostLayers: f32, lostLife: f32,
+        lostScale: f32, lostAspect: f32, lostVariance: f32, residualGain: f32, residualQuant: f32,
+        recover: f32, keyframe: f32, lost: f32, debugMotion: f32, debugScale: f32, debugField: f32,
+        debugArrows: f32, showMotionArrows: f32, showLostSectors: f32) -> vec4f {
+  // one decoder step per camera frame: between ticks the picture holds
+  if (G.camFit.w < 0.5) { return textureSampleLevel(T1, samp, uv, 0.0); }
+
+  uTime = G.time * 1000.0;
+  uRecover = recover;
+  uKeyframe = keyframe;
+  uMotionGain = motionGain;
+  uBlockSize = blockSize;
+  uBlockiness = blockiness;
+  uMvPrecision = mvPrecision;
+  uSkipThreshold = skipThreshold;
+  uMismatch = mismatch;
+  uFrozenBlocks = frozenBlocks * lost;
+  uLostLayers = lostLayers;
+  uLostLife = lostLife;
+  uLostScale = lostScale;
+  uLostAspect = lostAspect;
+  uLostVariance = lostVariance;
+  uResidualGain = residualGain;
+  uResidualQuant = residualQuant;
+  uDebugMotion = debugMotion;
+  uDebugScale = debugScale;
+  uShowLostSectors = showLostSectors;
+  uDebugField = debugField;
+  uDebugArrows = debugArrows;
+  uShowMotionArrows = showMotionArrows;
+  resolution = G.res;
+  uHistoryResolution = vec2f(textureDimensions(T1));
+  let inputColor = textureSampleLevel(T0, samp, uv, 0.0);
+
+  let blocks = max(resolution / max(uBlockSize, 1.0), vec2f(1.0));
+  let blockId = floor(uv * blocks);
+  let blockUV = (blockId + 0.5) / blocks;
+
+  // Nothing to decode: the effect is at rest, or this is the keyframe that
+  // repairs the picture. The overlays still draw here.
+  if ((uRecover >= 1.0 && uDebugMotion < 0.5) || uKeyframe > 0.5) {
+    var clean = inputColor.rgb;
+    if (uShowMotionArrows > 0.5) { clean = withArrows(clean, arrowAt(uv, blocks, blockId)); }
+
+    let border = lostRegion(blockUV).y * uShowLostSectors * uBlockiness;
+    return vec4f(mix(clean, vec3f(1.0), border), 1.0);
+  }
+
+  let warp = select(1.0 - uRecover, 1.0, uDebugMotion > 0.5);
+
+  // One vector per macroblock, read at the block centre. A few blocks read
+  // their neighbour's vector instead: motion compensation mismatch.
+  let mvBlockUV = clamp(blockUV + (sign(hash23(vec3f(blockId, 29.0)) - 0.5) / blocks)
+                                  * (step(hash13(vec3f(blockId, 23.0)), uMismatch) * uBlockiness),
+                        vec2f(0.0), vec2f(1.0));
+  let mvUV = mix(uv, mvBlockUV, uBlockiness);
+
+  var motion = rawMotionAt(mvUV) * uMotionGain * warp;
+
+  // Codecs store vectors at half or quarter pixel, never at float precision.
+  let mvSteps = max(uMvPrecision, 1.0);
+  let motionPx = motion * resolution;
+  motion = mix(motionPx, floor(motionPx * mvSteps + 0.5) / mvSteps, uBlockiness) / resolution;
+
+  // Two ways a block ends up frozen: too little motion to be worth coding
+  // (skip), or its data never arrived (lost).
+  var skip = 0.0;
+  if (uSkipThreshold > 0.0) {
+    skip = (1.0 - smoothstep(uSkipThreshold * 0.5, uSkipThreshold, length(motion * resolution))) * uBlockiness;
+  }
+
+  // Debug view: the field as hue and brightness, over the macroblock grid,
+  // with an arrow per cell on top.
+  if (uDebugMotion > 0.5) {
+    let shown = motion * (1.0 - skip);
+
+    let wheel = clamp(abs(fmod3(atan2(shown.y, shown.x) / 6.2831853 * 6.0 + vec3f(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0,
+                      vec3f(0.0), vec3f(1.0));
+    let value = clamp(length(shown * resolution) / max(uDebugScale, 0.01), 0.0, 1.0);
+    let field = mix(vec3f(0.12), wheel, step(0.02, value)) * max(value, 0.12);
+
+    var debugView = mix(vec3f(0.0), field, uDebugField);
+
+    let grid = abs(fract(uv * blocks) - 0.5);
+    debugView = mix(vec3f(0.35), debugView, 1.0 - step(0.47, max(grid.x, grid.y)));
+
+    let arrow = arrowAt(uv, blocks, blockId) * step(1e-6, length(shown)) * uDebugArrows;
+
+    let border = lostRegion(blockUV).y * uShowLostSectors * uBlockiness;
+    return vec4f(mix(withArrows(debugView, arrow), vec3f(1.0), border), 1.0);
+  }
+
+  let lostHere = lostRegion(blockUV);
+  motion *= 1.0 - max(skip, lostHere.x * uBlockiness);
+
+  // The decode itself: drag the previous frame along the vectors, add the
+  // residual, then let the honest picture fade back in as uRecover rises.
+  var moshed: vec3f;
+  if (length(motion * resolution) < 0.001) {
+    moshed = textureSampleLevel(T1, samp, uv, 0.0).rgb;
+  } else {
+    moshed = sampleHistory(uv - motion);
+  }
+
+  moshed += residualAt(uv, motion, inputColor.rgb, moshed) * uResidualGain * (1.0 - skip) * warp;
+
+  var decoded = mix(clamp(moshed, vec3f(0.0), vec3f(1.0)), inputColor.rgb, uRecover);
+  if (uShowMotionArrows > 0.5) { decoded = withArrows(decoded, arrowAt(uv, blocks, blockId)); }
+
+  return vec4f(mix(decoded, vec3f(1.0), lostHere.y * uShowLostSectors * uBlockiness), 1.0);
 }`,
     },
   ],

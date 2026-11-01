@@ -186,9 +186,12 @@
   async function startCamera() {
     feed?.stop();
     feed = null;
-    const forceTest = new URLSearchParams(location.search).get('source') === 'test';
+    const query = new URLSearchParams(location.search);
+    const forceTest = query.get('source') === 'test';
+    // ?camfps=30 simulates a 30 fps camera on the test card
+    const camFps = Number(query.get('camfps')) || 0;
     if (forceTest || !cameraSupported()) {
-      send({ type: 'testSource' });
+      send({ type: 'testSource', camFps });
       if (!forceTest) say('SIN CÁMARA: CARTA DE AJUSTE');
       return;
     }
@@ -200,7 +203,7 @@
       applyZoom(1);
     } catch (e) {
       console.warn('camera', e);
-      send({ type: 'testSource' });
+      send({ type: 'testSource', camFps });
       say('SIN CÁMARA: CARTA DE AJUSTE');
     }
   }

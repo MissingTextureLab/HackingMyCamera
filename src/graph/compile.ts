@@ -71,7 +71,7 @@ struct Globals {
   time: f32,
   dt: f32,
   res: vec2f,
-  camFit: vec4f, // xy: uv scale for cover fit and zoom, z: mirror (0/1)
+  camFit: vec4f, // xy: uv scale for cover fit and zoom, z: mirror (0/1), w: 1 on a camera tick
 };
 @group(0) @binding(0) var<uniform> G: Globals;
 @group(0) @binding(1) var<uniform> P: array<vec4f, 64>;

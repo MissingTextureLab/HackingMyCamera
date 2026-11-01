@@ -22,7 +22,8 @@ export interface Macro {
 }
 
 export type LfoShape = 'sine' | 'tri' | 'saw' | 'square' | 'random' | 'noise';
-export type TouchChannel = 'x' | 'y' | 'down' | 'vx' | 'vy' | 'count' | 'pinch';
+/** hold / lost: the datamosh trigger, timed by Signals (see gestureValue). */
+export type TouchChannel = 'x' | 'y' | 'down' | 'vx' | 'vy' | 'count' | 'pinch' | 'hold' | 'lost';
 /** Phone tilt relative to how it was held when the effect started: x = left/right, y = forward/back. */
 export type MotionChannel = 'x' | 'y';
 /** Pulses: 1 at the event, fading to 0 within 0.6 s. 'shot' = photo or start of recording. */

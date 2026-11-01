@@ -61,7 +61,37 @@ export function touchValue(t: TouchSnapshot, ch: TouchChannel): number {
       return clamp01(t.count / 2);
     case 'pinch':
       return clamp01((t.pinch - 0.5) / 2);
+    // they need the gesture's timing; without it, the finger itself
+    case 'hold':
+    case 'lost':
+      return t.down;
   }
+}
+
+// The datamosh trigger, as in niccolofanton/data-mosh (DataMoshManager.render):
+// the effect runs while a finger is down and the honest picture comes back
+// linearly over HOLD_FADE after the release; packet loss joins LOST_DELAY into
+// a gesture and stays through the fade.
+/** Recovery after a release, in seconds (the original's fadeDuration, 370 ms). */
+export const HOLD_FADE = 0.37;
+/** How long a gesture runs before the lost sectors appear, in seconds. */
+export const LOST_DELAY = 0.3;
+
+/** When the last touch began and ended, in signal time (seconds). */
+export interface GestureTimes {
+  pressAt: number;
+  releaseAt: number;
+}
+
+/**
+ * 'hold': 1 while touching, then down to 0 over HOLD_FADE (it is 1 - uRecover).
+ * 'lost': 1 once the gesture is LOST_DELAY old, and before any gesture at all,
+ * like the original (it only shows while the effect runs).
+ */
+export function gestureValue(ch: 'hold' | 'lost', down: boolean, g: GestureTimes, time: number): number {
+  if (ch === 'lost') return time - g.pressAt >= LOST_DELAY ? 1 : 0;
+  if (down) return 1;
+  return clamp01(1 - (time - g.releaseAt) / HOLD_FADE);
 }
 
 /** Tilt in degrees from the reference pose; 0.5 is level, ±TILT_RANGE reaches 0 / 1. */
@@ -86,8 +116,14 @@ export function sourceValue(
   touch: TouchSnapshot,
   motion: MotionSnapshot = { x: 0, y: 0 },
   events: Partial<Record<EventChannel, number>> = {},
+  gesture?: GestureTimes,
 ): number {
-  if (src.kind === 'touch') return touchValue(touch, src.channel);
+  if (src.kind === 'touch') {
+    if (gesture && (src.channel === 'hold' || src.channel === 'lost')) {
+      return gestureValue(src.channel, touch.down > 0.5, gesture, time);
+    }
+    return touchValue(touch, src.channel);
+  }
   if (src.kind === 'event') return eventValue(events[src.channel], time);
   if (src.kind === 'motion') return clamp01(0.5 + motion[src.channel] / (2 * TILT_RANGE));
   const cycles = time * src.rate + (src.phase ?? 0);
@@ -107,6 +143,10 @@ export class Signals {
 
   /** When each event last fired, in signal time (seconds). */
   readonly events: Partial<Record<EventChannel, number>> = {};
+
+  /** When the last touch began and ended (the hold / lost channels). */
+  readonly gesture: GestureTimes = { pressAt: -Infinity, releaseAt: -Infinity };
+  private wasDown = false;
 
   trigger(channel: EventChannel, time: number) {
     this.events[channel] = time;
@@ -132,9 +172,15 @@ export class Signals {
 
   /** Computes every mod for this frame and hands (slot, value) to `write`. */
   update(time: number, dt: number, write: (slot: number, value: number) => void) {
+    const down = this.touch.down > 0.5;
+    if (down !== this.wasDown) {
+      if (down) this.gesture.pressAt = time;
+      else this.gesture.releaseAt = time;
+      this.wasDown = down;
+    }
     for (const b of this.bound) {
       const { mod } = b;
-      const v = sourceValue(mod.source, time, this.touch, this.motion, this.events);
+      const v = sourceValue(mod.source, time, this.touch, this.motion, this.events, this.gesture);
       let target = mod.range[0] + (mod.range[1] - mod.range[0]) * v;
       const smooth = mod.smooth ?? 0;
       // frame-rate independent one-pole: `smooth` is the per-frame factor at 60 fps

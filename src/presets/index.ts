@@ -1,4 +1,4 @@
-// The gallery: eleven effects, each about one visual question. Names follow
+// The gallery: twelve effects, each about one visual question. Names follow
 // DESIGN.md (catalogue code + one Spanish word).
 // Macros: A = drag x, B = drag y, C = two-finger twist.
 // Mods move params on their own (LFO) or with the finger (touch).
@@ -120,6 +120,27 @@ const orden = effect({ id: 'orden', code: '50', name: 'Orden' }, (m) => {
   s.out(0);
 });
 
+// Compression: a decoder that never gets its keyframe (a port of
+// niccolofanton/data-mosh, see NOTICE.md). Hold a finger on the image and the
+// picture you had is dragged along by whatever moves in front of the lens, in
+// macroblocks that slide, freeze and drop out; let go and the real image comes
+// back in 370 ms. The vectors are measured from the camera (motion, o2), the
+// decoder's reference frame is its own last output (o1).
+const perdida = effect({ id: 'perdida', code: '51', name: 'Pérdida' }, (m) => {
+  cam().latch(o(3)).out(3);
+  const mv = cam().motion(o(3), o(2));
+  mv.out(2);
+  const rec = cam().decode(o(1), mv);
+  rec.out(1);
+  // the middle of each drag is the original's default: gain 1.5, 8 px blocks
+  m.macro('ARRASTRE', rec, 'motionGain', 0, 3);
+  m.macro('BLOQUE', rec, 'blockSize', 4, 12);
+  m.twist('PAQUETES', rec, 'frozenBlocks', 0, 1);
+  m.mod(rec, 'recover', touch('hold'), 1, 0);
+  m.mod(rec, 'lost', touch('lost'), 0, 1);
+  rec.out(0);
+});
+
 /* ---------- 3D: a slow camera walks between the views where each volume reads best ---------- */
 // Yaw, pitch and distance run on LFOs with unrelated rates, so the path never
 // repeats exactly. The phase (3rd arg of lfo) starts each path at its home framing.
@@ -166,4 +187,4 @@ const talla = effect({ id: 'talla', code: '69', name: 'Talla' }, (m) => {
   glow.out(0);
 });
 
-export const PRESETS: EffectGraph[] = [trama, espejo, halo, muda, barrido, letra, senal, orden, relieve, ciudad, talla];
+export const PRESETS: EffectGraph[] = [trama, espejo, halo, muda, barrido, letra, senal, orden, perdida, relieve, ciudad, talla];

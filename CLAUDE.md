@@ -77,7 +77,9 @@ src/app/       Svelte 5 UI (App, Shutter, EffectStrip) and gestures.ts (drag / p
 - WGSL reserved words bite (`target`, `module`, …): avoid them as names in snippets; the engine shows compile errors as an on-screen notice.
 - Effects from outside the code (files, editor) go through `validateEffect`; the worker validates every graph it receives.
 - A param is either a macro (gestures) or a mod (signals), never both. Macros take the gestures in order (A drag x, B drag y, C twist); `m.twist(...)` puts one on C directly, leaving the drag free. A macro can drag linked params along (`m.macro(label, chain, param, min, max, [[chain, param, min, max]])`), each over its own range; set their defaults so they agree at the macro's resting value.
+- Camera tick: the camera delivers ~30 fps and the render loop runs at 60. `G.camFit.w` is 1 on frames where a new camera frame arrived for that stage (per stage: thumbnails render round-robin); `latch(a, b)` gives `a` on ticks and `b` otherwise, so `cam().latch(o(3)).out(3)` keeps o3 as the camera at the last tick. Stateful effects (datamosh, FX-51 in `PLAN-DATAMOSH.md`) step on ticks. `?source=test&camfps=30` simulates a 30 fps camera on the test card.
 - No microphone: the user doesn't want audio input or audio in recordings.
 - Canvas reads for photo/recording must happen in the same task right after `queue.submit` (see `loop` in the worker).
 - Render size: long side capped at 1920, even dimensions (H.264).
-- Never copy code from hydra-synth (AGPL); names and ideas only.
+- Never copy code from hydra-synth (AGPL); names and ideas only. The `decode` op is a port of niccolofanton/data-mosh (MIT): keep `NOTICE.md` and its header comment.
+- Motion vectors (`motion`, read by `decode`) travel as (+x, +y, -x, -y) / 4 in output px, because `fragment()` clamps pass results to 0..64; a cleared buffer reads as no motion.

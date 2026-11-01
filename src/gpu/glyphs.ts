@@ -33,9 +33,12 @@ export async function buildStampAtlas(): Promise<OffscreenCanvas> {
   return atlas;
 }
 
-/** Text → atlas indices; anything outside the alphabet becomes a space. */
+/** Text → atlas indices; accents the alphabet lacks are dropped (É → E), anything else becomes a space. */
 export function stampCodes(text: string): number[] {
-  return [...text.toUpperCase()].map((ch) => Math.max(0, STAMP_CHARS.indexOf(ch)));
+  return [...text.toUpperCase()].map((ch) => {
+    const i = STAMP_CHARS.indexOf(ch);
+    return i >= 0 ? i : Math.max(0, STAMP_CHARS.indexOf(ch.normalize('NFD')[0]));
+  });
 }
 
 export const GLYPH_COUNT = 16;
