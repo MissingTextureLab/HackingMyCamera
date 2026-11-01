@@ -205,6 +205,7 @@ export function validateEffect(input: unknown): EffectGraph {
     nodes,
     outputs,
     display,
+    ...(g.ticked === true ? { ticked: true as const } : {}),
     macros,
     mods,
   };

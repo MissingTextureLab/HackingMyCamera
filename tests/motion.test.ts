@@ -86,6 +86,7 @@ describe('scope', () => {
     const c = compileEffect(probe());
     const scope = c.passes.find((p) => p.wgsl.includes('fn seg('))!;
     expect(scope.inputs).toHaveLength(2);
-    expect(scope.target).toEqual({ kind: 'temp', id: expect.any(String) });
+    // nothing reads it, so it renders straight into the output
+    expect(scope.target).toEqual({ kind: 'output', id: 'o0' });
   });
 });

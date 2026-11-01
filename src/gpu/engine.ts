@@ -321,14 +321,19 @@ class Stage {
     // thumbnails render round-robin and each one sees the camera change between its own frames.
     g[7] = this.e.camVersion !== this.seenCam ? 1 : 0;
     this.seenCam = this.e.camVersion;
-    d.queue.writeBuffer(this.globals, 0, g);
-    if (this.paramsDirty) {
-      d.queue.writeBuffer(this.params, 0, this.paramsData);
-      this.paramsDirty = false;
+    // An effect that only changes on camera ticks has nothing to redraw in between: leave its
+    // buffers as they are and just present them. Params stay dirty until the next real frame.
+    const skip = eff.graph.ticked === true && g[7] < 0.5 && this.frame > 0;
+    if (!skip) {
+      d.queue.writeBuffer(this.globals, 0, g);
+      if (this.paramsDirty) {
+        d.queue.writeBuffer(this.params, 0, this.paramsData);
+        this.paramsDirty = false;
+      }
     }
 
     const parity = this.frame & 1;
-    eff.compiled.passes.forEach((p, i) => {
+    (skip ? [] : eff.compiled.passes).forEach((p, i) => {
       const target = p.target.kind === 'output' ? this.outputs[OUTPUTS.indexOf(p.target.id)][parity] : eff.temps.get(p.target.id)!;
       if (p.compute) {
         const cp = enc.beginComputePass();
@@ -376,10 +381,11 @@ class Stage {
       timestampWrites: timestamps ? { querySet: timestamps, endOfPassWriteIndex: 1 } : undefined,
     });
     present.setPipeline(this.e.presentPipeline);
-    present.setBindGroup(0, this.presentGroup(displayIndex, parity));
+    // after a skipped frame the last one written is the other parity
+    present.setBindGroup(0, this.presentGroup(displayIndex, skip ? parity ^ 1 : parity));
     present.draw(3);
     present.end();
-    this.frame++;
+    if (!skip) this.frame++;
   }
 
   passCount() {

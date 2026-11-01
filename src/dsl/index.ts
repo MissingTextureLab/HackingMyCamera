@@ -122,7 +122,11 @@ export class Chain {
    * the result is written back to (the reference frame), `motion` the map from `motion`.
    * Every uniform of the original is a param, with its default; drive `recover` with the trigger.
    */
-  decode(history: Chain, motion: Chain) { return this.builder.add('decode', [this, history, motion], []); }
+  decode(history: Chain, motion: Chain, set: Record<string, number> = {}) {
+    const names = OPS.decode.params.map((p) => p.name);
+    for (const key of Object.keys(set)) if (!names.includes(key)) throw new Error(`"decode" has no param "${key}"`);
+    return this.builder.add('decode', [this, history, motion], names.map((name) => set[name]));
+  }
   /** Colours a grey freshness buffer by age: green while fresh, dim purple past `knee`. */
   aging(knee?: number) { return this.un('aging', [knee]); }
 
@@ -210,6 +214,8 @@ export interface EffectMeta {
   code: string;
   name: string;
   display?: OutputId;
+  /** The effect only changes on camera ticks: the engine skips its passes in between. */
+  ticked?: boolean;
 }
 
 // signal sources for m.mod(...)
@@ -274,6 +280,7 @@ export function effect(meta: EffectMeta, body: (m: MacroApi) => void): EffectGra
     nodes: b.nodes,
     outputs: b.outputs,
     display,
+    ...(meta.ticked ? { ticked: true as const } : {}),
     macros: b.macros,
     mods: b.mods,
   };

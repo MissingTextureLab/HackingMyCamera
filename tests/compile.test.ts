@@ -65,7 +65,8 @@ describe('compileEffect', () => {
     const c = compileEffect(g);
     const half = c.temps.filter((t) => t.scale === 0.5);
     expect(half).toHaveLength(3);
-    const last = c.passes[c.passes.length - 2]; // before the output copy
+    const last = c.passes[c.passes.length - 1]; // renders straight into o0
+    expect(last.target).toEqual({ kind: 'output', id: 'o0' });
     expect(last.inputs).toHaveLength(2);
     expect(last.inputs[0]).toBe(c.passes[0].target.id); // the camera, materialized
   });
@@ -93,7 +94,9 @@ describe('compileEffect', () => {
     const c = compileEffect(g);
     const disp = c.passes.find((p) => p.wgsl.includes('fn PASS') && p.inputs.length === 2)!;
     expect(disp).toBeDefined();
-    expect(c.passes.filter((p) => p.target.kind === 'temp')).toHaveLength(3);
+    // the camera and the noise are copied; the displace itself renders straight into o0
+    expect(c.passes.filter((p) => p.target.kind === 'temp')).toHaveLength(2);
+    expect(disp.target).toEqual({ kind: 'output', id: 'o0' });
   });
 
   it('includes snippet dependencies', () => {

@@ -84,8 +84,21 @@ describe('FX-51 PÉRDIDA', () => {
   });
 
   it('feeds the decoder its own last output', () => {
-    expect(perdida.outputs.o0).toBe(perdida.outputs.o1);
+    expect(perdida.display).toBe('o1');
+    expect(perdida.outputs.o0).toBeUndefined();
     expect(() => validateEffect(JSON.parse(JSON.stringify(perdida)))).not.toThrow();
+  });
+
+  it('only redraws on camera ticks, with the fewest passes', () => {
+    expect(perdida.ticked).toBe(true);
+    const c = compileEffect(perdida);
+    const copies = c.passes.filter((p) => p.target.kind === 'temp' && p.inputs.length === 0);
+    // the camera, o3, o2 and o1: each is copied once
+    expect(copies).toHaveLength(4);
+    // the decoder writes o1 itself, with no copy after it
+    const decoder = c.passes.find((p) => p.target.kind === 'output' && p.target.id === 'o1')!;
+    expect(decoder.inputs).toHaveLength(3);
+    expect(c.passes.filter((p) => p.target.kind === 'output' && p.target.id === 'o0')).toHaveLength(0);
   });
 
   it('stamps its name without dropping the accent letter', () => {

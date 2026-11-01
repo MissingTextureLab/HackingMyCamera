@@ -62,6 +62,35 @@ describe('decode', () => {
     }
   });
 
+  it('renders straight into its output when nothing else reads it', () => {
+    const g = effect({ id: 'x', code: '00', name: 'X' }, () => {
+      cam().sharpen(1).out(0);
+    });
+    const c = compileEffect(g);
+    const last = c.passes[c.passes.length - 1];
+    expect(last.target).toEqual({ kind: 'output', id: 'o0' });
+    expect(c.temps.map((t) => t.id)).toHaveLength(1); // the camera; no copy of the result
+  });
+
+  it('does not for a filter that runs below full resolution', () => {
+    const g = effect({ id: 'y', code: '00', name: 'Y' }, () => {
+      cam().blur(4).out(0);
+    });
+    const c = compileEffect(g);
+    // its half-resolution result is a temp that the output pass upsamples
+    expect(c.temps.some((t) => t.scale === 0.5 && t.id.startsWith('blur'))).toBe(true);
+    expect(c.passes.at(-1)!.inputs).toEqual([c.passes.at(-2)!.target.id]);
+  });
+
+  it('keeps a copy when two outputs or another node read the filter', () => {
+    const c = compileEffect(mosh()); // decode is the root of o0 and o1
+    expect(c.passes.filter((p) => p.target.kind === 'output' && ['o0', 'o1'].includes(p.target.id))).toHaveLength(2);
+  });
+
+  it('latent defaults to 0, so the port stays literal', () => {
+    expect(OPS.decode.params.find((p) => p.name === 'latent')!.default).toBe(0);
+  });
+
   it('survives validation', () => {
     expect(() => validateEffect(JSON.parse(JSON.stringify(mosh())))).not.toThrow();
   });

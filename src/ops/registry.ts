@@ -979,6 +979,9 @@ def({
     p('debugArrows', 1),
     p('showMotionArrows', 0),
     p('showLostSectors', 0),
+    // Not in the original: how much of the live camera seeps into the picture on every step
+    // while it decodes. The last picture seen degrades slowly into the real shape; 0 = off.
+    p('latent', 0),
   ],
   passes: [
     {
@@ -1189,7 +1192,7 @@ fn PASS(uv: vec2f, motionGain: f32, blockSize: f32, blockiness: f32, mvPrecision
         skipThreshold: f32, mismatch: f32, frozenBlocks: f32, lostLayers: f32, lostLife: f32,
         lostScale: f32, lostAspect: f32, lostVariance: f32, residualGain: f32, residualQuant: f32,
         recover: f32, keyframe: f32, lost: f32, debugMotion: f32, debugScale: f32, debugField: f32,
-        debugArrows: f32, showMotionArrows: f32, showLostSectors: f32) -> vec4f {
+        debugArrows: f32, showMotionArrows: f32, showLostSectors: f32, latent: f32) -> vec4f {
   // one decoder step per camera frame: between ticks the picture holds
   if (G.camFit.w < 0.5) { return textureSampleLevel(T1, samp, uv, 0.0); }
 
@@ -1293,6 +1296,8 @@ fn PASS(uv: vec2f, motionGain: f32, blockSize: f32, blockiness: f32, mvPrecision
   moshed += residualAt(uv, motion, inputColor.rgb, moshed) * uResidualGain * (1.0 - skip) * warp;
 
   var decoded = mix(clamp(moshed, vec3f(0.0), vec3f(1.0)), inputColor.rgb, uRecover);
+  // not in the original: the real picture seeps back a little on every step
+  decoded = mix(decoded, inputColor.rgb, latent * warp);
   if (uShowMotionArrows > 0.5) { decoded = withArrows(decoded, arrowAt(uv, blocks, blockId)); }
 
   return vec4f(mix(decoded, vec3f(1.0), lostHere.y * uShowLostSectors * uBlockiness), 1.0);

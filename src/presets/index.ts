@@ -126,11 +126,15 @@ const orden = effect({ id: 'orden', code: '50', name: 'Orden' }, (m) => {
 // macroblocks that slide, freeze and drop out; let go and the real image comes
 // back in 370 ms. The vectors are measured from the camera (motion, o2), the
 // decoder's reference frame is its own last output (o1).
-const perdida = effect({ id: 'perdida', code: '51', name: 'Pérdida' }, (m) => {
-  cam().latch(o(3)).out(3);
-  const mv = cam().motion(o(3), o(2));
+const perdida = effect({ id: 'perdida', code: '51', name: 'Pérdida', display: 'o1', ticked: true }, (m) => {
+  // one camera node: it is copied once for everything that reads it
+  const c = cam();
+  c.latch(o(3)).out(3);
+  const mv = c.motion(o(3), o(2));
   mv.out(2);
-  const rec = cam().decode(o(1), mv);
+  // latent: the real picture seeps back a little on every step, so the last image seen
+  // stays legible at first and degrades towards the shape the camera really sees
+  const rec = c.decode(o(1), mv, { latent: 0.03 });
   rec.out(1);
   // the middle of each drag is the original's default: gain 1.5, 8 px blocks
   m.macro('ARRASTRE', rec, 'motionGain', 0, 3);
@@ -138,7 +142,6 @@ const perdida = effect({ id: 'perdida', code: '51', name: 'Pérdida' }, (m) => {
   m.twist('PAQUETES', rec, 'frozenBlocks', 0, 1);
   m.mod(rec, 'recover', touch('hold'), 1, 0);
   m.mod(rec, 'lost', touch('lost'), 0, 1);
-  rec.out(0);
 });
 
 /* ---------- 3D: a slow camera walks between the views where each volume reads best ---------- */

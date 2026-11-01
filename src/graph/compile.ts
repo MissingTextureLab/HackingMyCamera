@@ -159,6 +159,26 @@ export function compileEffect(graph: EffectGraph): CompiledEffect {
     }
   }
 
+  // A filter that is the root of exactly one output and is read by nothing else renders its
+  // last pass straight into that output buffer, with no copy pass in between.
+  const direct = new Map<string, OutputId>();
+  {
+    const read = new Set<string>();
+    for (const node of Object.values(nodes)) for (const src of node.in ?? []) read.add(src);
+    const roots = new Map<string, number>();
+    for (const output of OUTPUTS) {
+      const root = graph.outputs[output];
+      if (root) roots.set(root, (roots.get(root) ?? 0) + 1);
+    }
+    for (const output of OUTPUTS) {
+      const root = graph.outputs[output];
+      if (!root || !nodes[root]) continue;
+      const def = OPS[nodes[root].op];
+      const lastScale = def.kind === 'filter' ? (def.passes![def.passes!.length - 1].scale ?? 1) : 0;
+      if (lastScale === 1 && !read.has(root) && roots.get(root) === 1) direct.set(root, output);
+    }
+  }
+
   const passes: CompiledPass[] = [];
   const temps = new Map<string, number>();
   const depthTemps = new Set<string>();
@@ -265,11 +285,12 @@ export function compileEffect(graph: EffectGraph): CompiledEffect {
       def.passes!.forEach((fp, k) => {
         const last = k === def.passes!.length - 1;
         const tempId = last ? id : `${id}#${k}`;
-        temps.set(tempId, fp.scale ?? 1);
+        const output = last ? direct.get(id) : undefined;
+        if (!output) temps.set(tempId, fp.scale ?? 1);
         const inputs = fp.inputs.map((ref) => (ref.startsWith('in') ? ins[Number(ref.slice(2))] : `${id}#${ref.slice(1)}`));
         const call = `PASS(in.uv${args.length ? ', ' + args.join(', ') : ''})`;
         const wgsl = [HEADER, PRELUDE, FILTER_PRELUDE, fp.wgsl.trim(), fragment(call)].join('\n\n');
-        passes.push({ wgsl, inputs, target: { kind: 'temp', id: tempId } });
+        passes.push({ wgsl, inputs, target: output ? { kind: 'output', id: output } : { kind: 'temp', id: tempId } });
       });
     } else if (def.kind === 'processor') {
       const input = node.in![0];
@@ -304,6 +325,10 @@ export function compileEffect(graph: EffectGraph): CompiledEffect {
     const root = graph.outputs[output];
     if (!root) continue;
     if (!nodes[root]) throw new Error(`${output}: node "${root}" does not exist`);
+    if (direct.has(root)) {
+      materialize(root);
+      continue;
+    }
     fusedPass(root, false, { kind: 'output', id: output });
   }
 

@@ -59,6 +59,11 @@ export interface EffectGraph {
   nodes: Record<string, NodeSpec>;
   outputs: Partial<Record<OutputId, string>>;
   display: OutputId;
+  /**
+   * The effect only changes on camera ticks (G.camFit.w, see `latch`): between them the engine
+   * skips its passes and presents what the output buffers already hold.
+   */
+  ticked?: true;
   macros: Macro[];
   mods: Mod[];
 }
