@@ -200,7 +200,7 @@ Notas de traducción GLSL → WGSL a vigilar:
 ## 7. Riesgos
 
 1. **Calidad de los vectores estimados (el mayor).** El efecto del original se ve limpio porque sus vectores son exactos. Con cámara real hay ruido, desenfoque de movimiento y zonas lisas. Si F4 sale mal, las salidas son más muestras por bloque en la búsqueda fina, una pirámide más y suavizado temporal; no tocar el decodificador.
-2. **Granularidad.** Los vectores nacen en bloques de 16 px; `uBlockSize` por defecto es 8. Cada vector sirve a 2×2 macrobloques: los saltos, los sectores perdidos y el robo de vecino siguen siendo de 8 px, pero el movimiento no tiene esa resolución. Si se nota, F1 pasa a 8 px (4× de coste de búsqueda).
+2. **Granularidad.** *(Resuelto 2026-11-01.)* El campo de vectores ya está en bloques de 8 px, como `uBlockSize`: una búsqueda amplia en 16 px y un refinado por bloque de 8 px alrededor del padre, los vecinos y el vector anterior, con subpíxel por parábola. Con un patrón de 21,33 / 8,53 px por tick mide 21,3–21,6 / 8,2–8,3 (antes 20–22 / 8, en pasos de 2 px).
 3. **Sin corte de plano, hace falta movimiento.** Ver §2. Si se echa de menos, la alternativa es dejar que el disparador también congele un fotograma de otra fuente (una foto hecha antes). No se hace sin pedirlo.
 4. **Disparo y macros a la vez.** Ver §4.
 5. **Pellizco.** Ver §4.

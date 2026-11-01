@@ -762,8 +762,9 @@ fn PASS(uv: vec2f, drag: f32, block: f32) -> vec4f {
 
 // Motion vectors travel in textures as (+x, +y, -x, -y) / 4, in output pixels:
 // a pass result is clamped to 0..64, so negatives need their own channels, and
-// a cleared buffer (all 0) reads as "no motion". They live on a grid of 16 px
-// blocks; mvGrid() rounds like the engine does when it sizes the 1/16 temp.
+// a cleared buffer (all 0) reads as "no motion". The field lives on a grid of
+// 8 px blocks (mvGrid), found by refining a coarser search on 16 px blocks
+// (mvCoarse); both round like the engine does when it sizes a temp.
 const MV_WGSL = /* wgsl */ `
 fn mvEncode(v: vec2f) -> vec4f {
   return vec4f(max(v, vec2f(0.0)), max(-v, vec2f(0.0))) * 0.25;
@@ -774,16 +775,49 @@ fn mvDecode(t: vec4f) -> vec2f {
 }
 
 fn mvGrid() -> vec2f {
+  return max(vec2f(2.0), floor(G.res / 8.0 + 0.5));
+}
+
+fn mvCoarse() -> vec2f {
   return max(vec2f(2.0), floor(G.res / 16.0 + 0.5));
 }`;
 
+// Sum of absolute differences between a block of the current frame (CUR, at
+// SPOS) and the previous frame displaced by v, on the half-resolution luma in
+// T0 (r = current, g = previous). Shared by both levels of the search.
+const SAD_WGSL = /* wgsl */ `
+var<private> CUR: array<f32, 16>;
+var<private> SPOS: array<vec2i, 16>;
+
+fn sad(v: vec2i) -> f32 {
+  let hi = vec2i(textureDimensions(T0)) - vec2i(1);
+  var s = 0.0;
+  for (var k = 0; k < 16; k++) {
+    s += abs(CUR[k] - textureLoad(T0, clamp(SPOS[k] - v, vec2i(0), hi), 0).g);
+  }
+  return s / 16.0;
+}
+
+// 16 samples of block b on a grid of n blocks: a 4 x 4 lattice over the block
+fn loadBlock(b: vec2f, n: vec2f) {
+  let hd = vec2f(textureDimensions(T0));
+  for (var k = 0; k < 16; k++) {
+    let cell = vec2f(f32(k % 4), f32(k / 4));
+    let q = vec2i(floor((b + (cell + 0.5) / 4.0) / n * hd));
+    SPOS[k] = q;
+    CUR[k] = textureLoad(T0, q, 0).r;
+  }
+}`;
+
 // Motion: block matching, the way a video codec finds its motion vectors. One
-// vector per 16 px block says where that block's content went since the last
-// camera tick: cur(x) ~ prev(x - v). It is measured on half-resolution luma by
-// SAD over a 4x4 sample grid per block, in two levels (169 coarse candidates
-// ~4 px apart, then a fine search around the winner), and a block only moves if
-// it beats standing still by `calm` (sensor noise is not motion). The block's
-// previous vector is also a candidate, like a codec's temporal predictor.
+// vector per 8 px block says where that block's content went since the last
+// camera tick: cur(x) ~ prev(x - v). Measured on half-resolution luma by SAD,
+// in two levels: a wide search on 16 px blocks (169 candidates ~4 px apart,
+// then a fine search around the winner), and then each 8 px block refines
+// around its parent's vector, its neighbours' and its own last one (a codec's
+// spatial and temporal predictors), finishing below the pixel with a parabola
+// through the costs either side. A block only moves if it beats standing
+// still by `calm` (sensor noise is not motion).
 // Vectors are kept between ticks (in2 = o(2), which this op's result is
 // written to) and, when the block stops moving, decay by `sustain` per tick,
 // so a moved picture keeps sliding for a while. Everything only changes on
@@ -805,36 +839,19 @@ fn PASS(uv: vec2f, sustain: f32, calm: f32) -> vec4f {
   return vec4f(lumaAt(T0, uv), lumaAt(T1, uv), 0.0, 1.0);
 }`,
     },
-    // p1: one texel per 16 px block, the search
+    // p1: one texel per 16 px block, the wide search
     {
       inputs: ['p0', 'in2'],
       scale: 0.0625,
       wgsl: `${MV_WGSL}
-
-var<private> CUR: array<f32, 16>;
-var<private> SPOS: array<vec2i, 16>;
-
-fn sad(v: vec2i) -> f32 {
-  let hi = vec2i(textureDimensions(T0)) - vec2i(1);
-  var s = 0.0;
-  for (var k = 0; k < 16; k++) {
-    s += abs(CUR[k] - textureLoad(T0, clamp(SPOS[k] - v, vec2i(0), hi), 0).g);
-  }
-  return s / 16.0;
-}
+${SAD_WGSL}
 
 fn PASS(uv: vec2f, sustain: f32, calm: f32) -> vec4f {
   if (G.camFit.w < 0.5) { return vec4f(0.0); }
-  let n = mvGrid();
+  let n = mvCoarse();
   let b = floor(uv * n);
-  let hd = vec2f(textureDimensions(T0));
-  for (var k = 0; k < 16; k++) {
-    let cell = vec2f(f32(k % 4), f32(k / 4));
-    let q = vec2i(floor((b + (cell + 0.5) / 4.0) / n * hd));
-    SPOS[k] = q;
-    CUR[k] = textureLoad(T0, q, 0).r;
-  }
-  // the block's last vector, in half-resolution pixels
+  loadBlock(b, n);
+  // the last vector at the block's centre, in half-resolution pixels
   let res = vec2i(G.res);
   let centre = clamp(vec2i((b + 0.5) / n * G.res), vec2i(0), res - vec2i(1));
   let last = vec2i(round(mvDecode(textureLoad(T1, centre, 0)) * 0.5));
@@ -869,9 +886,74 @@ fn PASS(uv: vec2f, sustain: f32, calm: f32) -> vec4f {
   return mvEncode(vec2f(best) * 2.0);
 }`,
     },
-    // p2: full resolution, block-constant, with the memory
+    // p2: one texel per 8 px block, refined around the predictors, below the pixel
     {
-      inputs: ['p1', 'in2'],
+      inputs: ['p0', 'p1', 'in2'],
+      scale: 0.125,
+      wgsl: `${MV_WGSL}
+${SAD_WGSL}
+
+var<private> BEST: vec2i;
+var<private> BEST_COST: f32;
+
+fn consider(v: vec2i, bias: f32) {
+  let c = sad(v) + bias + 0.0001 * length(vec2f(v));
+  if (c < BEST_COST) { BEST = v; BEST_COST = c; }
+}
+
+// a 16 px block's vector, in half-resolution pixels
+fn coarseAt(b: vec2f) -> vec2i {
+  let bc = clamp(b, vec2f(0.0), mvCoarse() - 1.0);
+  return vec2i(round(mvDecode(textureLoad(T1, vec2i(bc), 0)) * 0.5));
+}
+
+// where a parabola through three equally spaced costs bottoms out, -0.5..0.5
+fn parabola(a: f32, b: f32, c: f32) -> f32 {
+  let d = a - 2.0 * b + c;
+  if (d <= 1e-6) { return 0.0; }
+  return clamp(0.5 * (a - c) / d, -0.5, 0.5);
+}
+
+fn PASS(uv: vec2f, sustain: f32, calm: f32) -> vec4f {
+  if (G.camFit.w < 0.5) { return vec4f(0.0); }
+  let n = mvGrid();
+  let b = floor(uv * n);
+  loadBlock(b, n);
+
+  BEST = vec2i(0);
+  BEST_COST = sad(BEST) - calm;
+  // spatial predictors: the parent 16 px block and the four next to it
+  let parent = floor((b + 0.5) / n * mvCoarse());
+  consider(coarseAt(parent), 0.0);
+  consider(coarseAt(parent + vec2f(1.0, 0.0)), 0.0);
+  consider(coarseAt(parent - vec2f(1.0, 0.0)), 0.0);
+  consider(coarseAt(parent + vec2f(0.0, 1.0)), 0.0);
+  consider(coarseAt(parent - vec2f(0.0, 1.0)), 0.0);
+  // temporal predictor: this block's last vector
+  let res = vec2i(G.res);
+  let centre = clamp(vec2i((b + 0.5) / n * G.res), vec2i(0), res - vec2i(1));
+  consider(vec2i(round(mvDecode(textureLoad(T2, centre, 0)) * 0.5)), -calm * 0.5);
+  // refine around the winner
+  let around = BEST;
+  for (var j = -2; j <= 2; j++) {
+    for (var i = -2; i <= 2; i++) {
+      if (i == 0 && j == 0) { continue; }
+      consider(around + vec2i(i, j), 0.0);
+    }
+  }
+  // below the pixel; a block that stands still stays exactly still
+  var v = vec2f(BEST);
+  if (any(BEST != vec2i(0))) {
+    let c0 = sad(BEST);
+    v += vec2f(parabola(sad(BEST - vec2i(1, 0)), c0, sad(BEST + vec2i(1, 0))),
+               parabola(sad(BEST - vec2i(0, 1)), c0, sad(BEST + vec2i(0, 1))));
+  }
+  return mvEncode(v * 2.0);
+}`,
+    },
+    // p3: full resolution, constant per 8 px block, with the memory
+    {
+      inputs: ['p2', 'in2'],
       wgsl: `${MV_WGSL}
 
 fn PASS(uv: vec2f, sustain: f32, calm: f32) -> vec4f {
@@ -889,7 +971,7 @@ fn PASS(uv: vec2f, sustain: f32, calm: f32) -> vec4f {
 });
 
 // Debug view of a motion map (in1) over the image (in0): the image dimmed, and
-// in every 16 px block an arrow along its vector, brighter the faster it moves.
+// in every 8 px block an arrow along its vector, brighter the faster it moves.
 def({
   name: 'scope',
   kind: 'filter',
@@ -941,7 +1023,7 @@ fn PASS(uv: vec2f, gain: f32) -> vec4f {
 // The port keeps the original's uniform names, steps and defaults (debug.ts).
 // What differs: the motion. The original renders it from its 3D scene (a
 // velocity pass, plus camera motion through the depth buffer); here it is
-// measured from the camera by `motion` (block matching on a 16 px grid), so
+// measured from the camera by `motion` (block matching on an 8 px grid), so
 // the camera/depth fallback and the parallax control are gone. And it steps
 // once per camera frame (G.camFit.w, see `latch`): between ticks the picture
 // holds. Uniforms are params here, copied into private globals so the body
@@ -1070,7 +1152,7 @@ fn lostRegion(uv: vec2f) -> vec2f {
   return vec2f(0.0);
 }
 
-// Not in the original: the camera's motion map, one vector per 16 px block,
+// Not in the original: the camera's motion map, one vector per 8 px block,
 // read at the block centres around the sample and blended, so a smooth field
 // still exists for blockiness < 1. In uv units, like the original velocity.
 fn fieldAt(b: vec2f) -> vec2f {

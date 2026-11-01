@@ -129,9 +129,7 @@ const perdida = effect({ id: 'perdida', code: '51', name: 'Pérdida', display: '
   c.latch(o(3)).out(3);
   const mv = c.motion(o(3), o(2));
   mv.out(2);
-  // latent: the real picture seeps back a little on every step, so the last image seen
-  // stays legible at first and degrades towards the shape the camera really sees
-  const rec = c.decode(o(1), mv, { latent: 0.03 });
+  const rec = c.decode(o(1), mv);
   rec.out(1);
   // the middle of each drag is the original's default: gain 1.5, 8 px blocks
   m.macro('ARRASTRE', rec, 'motionGain', 0, 3);

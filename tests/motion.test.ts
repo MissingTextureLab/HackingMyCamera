@@ -35,6 +35,7 @@ describe('motion', () => {
     const scale = (t: string) => c.temps.find((x) => x.id === t)?.scale;
     expect(scale(`${id}#0`)).toBe(0.5);
     expect(scale(`${id}#1`)).toBe(0.0625);
+    expect(scale(`${id}#2`)).toBe(0.125);
     expect(scale(id)).toBe(1);
   });
 
@@ -52,10 +53,11 @@ describe('motion', () => {
     const id = motionId(g);
     const c = compileEffect(g);
     const stateTemp = g.nodes[id].in![2];
-    const search = c.passes.find((p) => p.target.kind === 'temp' && p.target.id === `${id}#1`)!;
-    const memory = c.passes.find((p) => p.target.kind === 'temp' && p.target.id === id)!;
-    expect(search.inputs).toEqual([`${id}#0`, stateTemp]);
-    expect(memory.inputs).toEqual([`${id}#1`, stateTemp]);
+    const pass = (t: string) => c.passes.find((p) => p.target.kind === 'temp' && p.target.id === t)!;
+    // wide search on 16 px blocks, refinement on 8 px blocks, then the memory at full resolution
+    expect(pass(`${id}#1`).inputs).toEqual([`${id}#0`, stateTemp]);
+    expect(pass(`${id}#2`).inputs).toEqual([`${id}#0`, `${id}#1`, stateTemp]);
+    expect(pass(id).inputs).toEqual([`${id}#2`, stateTemp]);
     // the vectors go back into o2
     const write = c.passes.find((p) => p.target.kind === 'output' && p.target.id === 'o2')!;
     expect(write.inputs).toEqual([id]);
@@ -65,7 +67,7 @@ describe('motion', () => {
     const g = probe();
     const id = motionId(g);
     const c = compileEffect(g);
-    for (const t of [`${id}#1`, id]) {
+    for (const t of [`${id}#1`, `${id}#2`, id]) {
       const pass = c.passes.find((p) => p.target.kind === 'temp' && p.target.id === t)!;
       expect(pass.wgsl).toContain('G.camFit.w < 0.5');
       expect(pass.wgsl).toContain('fn mvDecode');
@@ -79,6 +81,14 @@ describe('motion', () => {
     expect(Object.values(c.slots)).toContain(macro.slot);
     expect(macro.gesture).toBe(2);
   });
+});
+
+it('refines below the pixel, but leaves a still block exactly still', () => {
+  const g = probe();
+  const c = compileEffect(g);
+  const refine = c.passes.find((p) => p.target.kind === 'temp' && p.target.id === `${motionId(g)}#2`)!;
+  expect(refine.wgsl).toContain('fn parabola');
+  expect(refine.wgsl).toContain('if (any(BEST != vec2i(0)))');
 });
 
 describe('scope', () => {
