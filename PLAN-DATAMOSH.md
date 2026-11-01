@@ -1,6 +1,6 @@
 # Plan — Datamosh (FX-51 PÉRDIDA): port de `niccolofanton/data-mosh`
 
-Estado: F0–F4 hechas; FX-51 PÉRDIDA está en la galería y funciona en el Android real (2026-11-01). Queda cerrar F5 (MUDA).
+Estado: F0–F4 hechas; FX-51 PÉRDIDA está en la galería y funciona en el Android real (2026-11-01). F5 hecha: MUDA ya no usa `mosh`.
 Reescrito el 2026-11-01. Complementa `PLAN.md` y `DESIGN.md`; si algo choca, mandan esos dos.
 
 Referencia: https://github.com/niccolofanton/data-mosh (carpeta `datamosh-demo/src/datamosh/`),
