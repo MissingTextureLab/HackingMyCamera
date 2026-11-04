@@ -444,7 +444,7 @@
     <div class="fatal" role="alert">
       <div class="card">
         <p>{fatal.title}</p>
-        <div class="why scan">
+        <div class="why">
           {#each fatal.lines as line, i}<span class="label" class:specs={i === fatal.lines.length - 1}>{line}</span>{/each}
         </div>
       </div>
@@ -860,13 +860,13 @@
     flex-direction: column;
     transform: rotate(var(--stamp-angle));
   }
+  /* no plates on this screen: the text sits straight on the floor */
   .fatal p {
     margin: 0;
     font-family: var(--font-pop);
     font-size: 48px;
     line-height: 1;
-    background: var(--flash);
-    color: var(--ink-fixed);
+    color: var(--flash);
     padding: var(--space-2) var(--space-3);
   }
   .fatal .why {
@@ -893,13 +893,14 @@
   .fatal button {
     min-height: 48px;
     padding: 0 var(--space-4);
-    border: 0;
+    border: 1px solid var(--lagoon);
     border-radius: var(--radius-0);
-    background: var(--panel);
+    background: none;
     color: var(--ink);
     cursor: pointer;
   }
   .fatal button:active {
-    background: var(--panel-deep);
+    border-color: var(--acid);
+    color: var(--acid);
   }
 </style>

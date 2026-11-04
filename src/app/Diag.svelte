@@ -52,15 +52,15 @@
     <div class="readouts">
       <div class="cell a">
         <span class="k label">NIVEL</span>
-        <span class="v scan">{verdict!.tier === '-' ? '--' : verdict!.tier}</span>
+        <span class="v">{verdict!.tier === '-' ? '--' : verdict!.tier}</span>
       </div>
       <div class="cell">
         <span class="k label">WEBGPU MS</span>
-        <span class="v scan">{fmt(result.gpu?.benchMs)}</span>
+        <span class="v">{fmt(result.gpu?.benchMs)}</span>
       </div>
       <div class="cell">
         <span class="k label">WEBGL2 MS</span>
-        <span class="v scan">{fmt(result.gl.benchMs)}</span>
+        <span class="v">{fmt(result.gl.benchMs)}</span>
       </div>
     </div>
     <p class="label why">{TIER_NAME[verdict!.tier]}{#each verdict!.reasons as r} · {r}{/each}</p>
@@ -116,17 +116,18 @@
     flex: 1;
     min-width: 0;
   }
+  /* no plates on this screen: labels and readouts sit straight on the floor */
   .cell .k {
-    background: var(--panel-deep);
-    color: var(--ink);
-    padding: var(--space-1) var(--space-2);
+    color: var(--ink-muted);
+    padding: var(--space-1) 0;
+    border-bottom: 1px solid var(--lagoon);
   }
   .cell.a .k {
-    background: var(--acid);
-    color: var(--ink-fixed);
+    color: var(--acid);
+    border-bottom-color: var(--acid);
   }
   .cell .v {
-    padding: var(--space-2);
+    padding: var(--space-2) 0;
     font-family: var(--font-dot);
     font-size: 32px;
     line-height: 1;
@@ -166,19 +167,20 @@
   button {
     min-height: 48px;
     padding: 0 var(--space-4);
-    border: 0;
+    border: 1px solid var(--lagoon);
     border-radius: var(--radius-0);
-    background: var(--panel);
+    background: none;
     color: var(--ink);
     cursor: pointer;
   }
   button:active {
-    background: var(--panel-deep);
+    border-color: var(--acid);
+    color: var(--acid);
   }
   .raw {
     margin: 0;
-    padding: var(--space-3);
-    background: var(--panel);
+    padding: var(--space-3) 0 0;
+    border-top: 1px solid var(--lagoon);
     font-family: var(--font-mono);
     font-size: 10px;
     line-height: 14px;
@@ -190,8 +192,6 @@
   .sent {
     align-self: flex-start;
     margin: 0;
-    background: var(--flash);
-    color: var(--ink-fixed);
-    padding: var(--space-1) var(--space-2);
+    color: var(--flash);
   }
 </style>
