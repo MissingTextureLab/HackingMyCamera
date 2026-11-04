@@ -21,6 +21,8 @@ Fonts are bundled from `@fontsource/*` (imported in `src/main.ts`); there are no
 
 `?source=test` forces the animated test card instead of the camera (desktop, no webcam).
 
+`?diag` opens the device probe instead of the app (`src/app/Diag.svelte`, `probe.ts`, `report.ts`): WebGPU/WebGL2/video support, a speed test and the proposed tier, with a report to send back. The error screen links to it. Tiers and phases: `PLAN-DEVICES.md`.
+
 ### Deployment
 
 Live at https://missingtexturelab.github.io/HackingMyCamera/ (repo `MissingTextureLab/HackingMyCamera`, public). Every push to `main` runs `.github/workflows/pages.yml`: tests, `pnpm build:pages` (base `/HackingMyCamera/`), deploy. Install on the phone from Chrome: ⋮ → Install app.

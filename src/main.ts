@@ -13,4 +13,7 @@ import '@fontsource/doto/latin-800.css';
 import './styles/tokens.css';
 import App from './app/App.svelte';
 
-mount(App, { target: document.getElementById('app')! });
+const target = document.getElementById('app')!;
+// `?diag`: device probe for phones that cannot run the app (PLAN-DEVICES.md, F1)
+if (new URLSearchParams(location.search).has('diag')) import('./app/Diag.svelte').then((m) => mount(m.default, { target }));
+else mount(App, { target });

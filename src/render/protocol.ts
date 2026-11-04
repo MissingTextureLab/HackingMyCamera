@@ -35,7 +35,7 @@ export interface MacroInfo {
 
 export type FromWorker =
   | { type: 'ready' }
-  | { type: 'error'; message: string }
+  | { type: 'error'; message: string; fatal?: boolean }
   | { type: 'effect'; id: string; macros: MacroInfo[] }
   | { type: 'photo'; blob: Blob }
   | { type: 'recStarted' }

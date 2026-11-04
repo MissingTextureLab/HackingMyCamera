@@ -8,6 +8,7 @@
   import { Tilt } from '../io/motion';
   import type { FromWorker, MacroInfo, ToWorker } from '../render/protocol';
   import type { EngineStats } from '../gpu/engine';
+  import { diagnose, readEnv, type Diagnosis } from './diagnose';
 
   let canvas: HTMLCanvasElement;
   let worker: Worker;
@@ -46,7 +47,19 @@
   let last = $state<{ url: string; blob: Blob; name: string; video: boolean } | null>(null);
 
   // status
-  let fatal = $state<string | null>(null);
+  let fatal = $state<Diagnosis | null>(null);
+  let copied = $state(false);
+  async function showFatal(message: string) {
+    fatal = diagnose(message, await readEnv());
+  }
+  async function copyReport() {
+    try {
+      await navigator.clipboard.writeText(fatal!.report);
+      copied = true;
+    } catch {
+      say('NO SE PUDO COPIAR');
+    }
+  }
   let notice = $state<string | null>(null);
   let hud = $state(false);
 
@@ -114,7 +127,7 @@
         break;
       case 'error':
         console.error('[render]', m.message);
-        if (m.message.startsWith('SIN WEBGPU') || m.message.startsWith('SIN ADAPTADOR') || m.message.startsWith('GPU PERDIDA')) fatal = m.message;
+        if (m.fatal || m.message.startsWith('GPU PERDIDA')) showFatal(m.message);
         else say(m.message.split('\n')[0].slice(0, 60).toUpperCase());
         break;
       case 'effect':
@@ -305,12 +318,12 @@
 
   onMount(() => {
     if (!navigator.gpu) {
-      fatal = 'SIN WEBGPU';
+      showFatal('SIN WEBGPU');
       return;
     }
     worker = new Worker(new URL('../render/worker.ts', import.meta.url), { type: 'module' });
     worker.addEventListener('message', onMessage);
-    worker.addEventListener('error', (e) => (fatal = `WORKER: ${e.message}`));
+    worker.addEventListener('error', (e) => showFatal(`WORKER: ${e.message}`));
     const offscreen = canvas.transferControlToOffscreen();
     send({ type: 'init', canvas: offscreen, ...physicalSize() }, [offscreen]);
 
@@ -420,7 +433,17 @@
 
   {#if fatal}
     <div class="fatal" role="alert">
-      <div class="card"><p>{fatal}</p><span class="label scan">Chrome para Android con WebGPU</span></div>
+      <div class="card">
+        <p>{fatal.title}</p>
+        <div class="why scan">
+          {#each fatal.lines as line, i}<span class="label" class:specs={i === fatal.lines.length - 1}>{line}</span>{/each}
+        </div>
+      </div>
+      <div class="actions">
+        <button class="label" onclick={copyReport}>{copied ? 'COPIADO' : 'COPIAR INFORME'}</button>
+        <button class="label" onclick={() => location.assign('?diag')}>DIAGNÓSTICO</button>
+        <button class="label" onclick={() => location.reload()}>REINTENTAR</button>
+      </div>
     </div>
   {/if}
 </main>
@@ -837,8 +860,37 @@
     color: var(--ink-fixed);
     padding: var(--space-2) var(--space-3);
   }
-  .fatal .label {
-    color: var(--ink-muted);
+  .fatal .why {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
     padding: var(--space-3) var(--space-4);
+    max-width: 320px;
+  }
+  .fatal .why .label {
+    color: var(--ink);
+    font-size: 12px;
+    line-height: 16px;
+  }
+  .fatal .why .specs {
+    color: var(--ink-muted);
+  }
+  .fatal .actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--space-2);
+  }
+  .fatal button {
+    min-height: 48px;
+    padding: 0 var(--space-4);
+    border: 0;
+    border-radius: var(--radius-0);
+    background: var(--panel);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .fatal button:active {
+    background: var(--panel-deep);
   }
 </style>

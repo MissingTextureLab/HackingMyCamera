@@ -120,7 +120,13 @@ scope.addEventListener('message', async (e) => {
         const [w, h] = fit(msg.width, msg.height);
         msg.canvas.width = w;
         msg.canvas.height = h;
-        engine = await Engine.create(msg.canvas);
+        try {
+          engine = await Engine.create(msg.canvas);
+        } catch (err) {
+          // without an engine there is nothing to show: the app puts up the error screen
+          post({ type: 'error', message: err instanceof Error ? err.message : String(err), fatal: true });
+          break;
+        }
         engine.onError = fail;
         post({ type: 'ready' });
         scope.requestAnimationFrame(loop);

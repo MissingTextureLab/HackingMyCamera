@@ -598,11 +598,18 @@ export class Engine {
 
   static async create(canvas: OffscreenCanvas): Promise<Engine> {
     if (!navigator.gpu) throw new Error('SIN WEBGPU');
-    const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+    // Some drivers reject a power preference or only offer the software adapter: try the plain request, then SwiftShader.
+    const adapter =
+      (await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' })) ??
+      (await navigator.gpu.requestAdapter()) ??
+      (await navigator.gpu.requestAdapter({ forceFallbackAdapter: true }));
     if (!adapter) throw new Error('SIN ADAPTADOR GPU');
     const requiredFeatures: GPUFeatureName[] = [];
     if (adapter.features.has('timestamp-query')) requiredFeatures.push('timestamp-query');
-    const device = await adapter.requestDevice({ requiredFeatures });
+    const device = await adapter.requestDevice({ requiredFeatures }).catch((e: unknown) => {
+      const info = adapter.info as GPUAdapterInfo | undefined; // Chrome < 127 has no `info`
+      throw new Error(`SIN DISPOSITIVO GPU: ${[info?.vendor, info?.architecture].filter(Boolean).join(' ')} ${e instanceof Error ? e.message : String(e)}`.trim());
+    });
     const [glyphs, stampFont] = await Promise.all([Engine.atlasTexture(device, buildGlyphAtlas), Engine.atlasTexture(device, buildStampAtlas)]);
     const engine = new Engine(device, canvas, glyphs, stampFont);
     device.lost.then((info) => engine.onError(`GPU PERDIDA: ${info.message}`));
