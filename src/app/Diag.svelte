@@ -13,7 +13,7 @@
   const verdict = $derived(result ? proposeTier(result) : null);
   // NIVEL is shown big, the rest as rows
   const rows = $derived(result ? reportRows(result).filter(([k]) => k !== 'NIVEL') : []);
-  const TIER_NAME: Record<Tier, string> = { A: 'COMPLETO', B: 'LIGERO', C: 'COMPATIBLE', '-': 'SIN GPU' };
+  const TIER_NAME: Record<Tier, string> = { A: 'COMPLETO', B: 'LIGERO', C: 'WEBGL2', '-': 'SIN GPU' };
   const fmt = (v: number | undefined) => (v === undefined ? '--' : v.toFixed(1));
 
   onMount(() => {

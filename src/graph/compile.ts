@@ -42,6 +42,13 @@ export interface CompiledPass {
   draws?: SceneDraw[];
   /** Processor: a compute pass (entry `main`), one workgroup per column of its target. */
   compute?: boolean;
+  /**
+   * For the WebGL2 backend: the pass's WGSL declarations and functions without the WebGPU header
+   * and entry point, and the expression that gives the pixel (`in.uv` is the pass uv). Empty for
+   * passes that backend cannot run (processors, 3D scenes).
+   */
+  body: string;
+  call: string;
 }
 
 export interface TempTexture {
@@ -115,6 +122,11 @@ const fnName = (id: string) => `n_${safe(id)}`;
 
 function fragment(body: string) {
   return `@fragment\nfn fs(in: VSOut) -> @location(0) vec4f {\n  FC = in.pos.xy;\n  return clamp(${body}, vec4f(0.0), vec4f(64.0));\n}`;
+}
+
+/** The graph has a 3D scene, which only the WebGPU backend draws. */
+export function needs3d(graph: EffectGraph): boolean {
+  return Object.values(graph.nodes).some((n) => OPS[n.op]?.kind === 'render3d');
 }
 
 /** The graph has a processor (compute pass), which a compatibility-mode device may not fit. */
@@ -273,7 +285,8 @@ export function compileEffect(graph: EffectGraph): CompiledEffect {
     }
 
     const wgsl = [HEADER, PRELUDE, ...[...snippets].map((op) => OPS[op].wgsl!.trim()), ...fns, fragment(`${fnName(root)}(in.uv)`)].join('\n\n');
-    passes.push({ wgsl, inputs, target });
+    const body = [PRELUDE, ...[...snippets].map((op) => OPS[op].wgsl!.trim()), ...fns].join('\n\n');
+    passes.push({ wgsl, inputs, target, body, call: `${fnName(root)}(in.uv)` });
   };
 
   /** Ensures node `id` has been rendered into the temp texture of the same name. */
@@ -295,7 +308,8 @@ export function compileEffect(graph: EffectGraph): CompiledEffect {
         const inputs = fp.inputs.map((ref) => (ref.startsWith('in') ? ins[Number(ref.slice(2))] : `${id}#${ref.slice(1)}`));
         const call = `PASS(in.uv${args.length ? ', ' + args.join(', ') : ''})`;
         const wgsl = [HEADER, PRELUDE, FILTER_PRELUDE, fp.wgsl.trim(), fragment(call)].join('\n\n');
-        passes.push({ wgsl, inputs, target: output ? { kind: 'output', id: output } : { kind: 'temp', id: tempId } });
+        const body = [PRELUDE, FILTER_PRELUDE, fp.wgsl.trim()].join('\n\n');
+        passes.push({ wgsl, inputs, target: output ? { kind: 'output', id: output } : { kind: 'temp', id: tempId }, body, call });
       });
     } else if (def.kind === 'processor') {
       const input = node.in![0];
@@ -306,7 +320,7 @@ export function compileEffect(graph: EffectGraph): CompiledEffect {
         .filter((p) => !p.structural)
         .map((p) => `fn p_${p.name}() -> f32 {\n  return ${param(id, p.name)};\n}`);
       const wgsl = [COMPUTE_HEADER, PRELUDE, ...accessors, def.compute!.wgsl.trim()].join('\n\n');
-      passes.push({ wgsl, inputs: [input], target: { kind: 'temp', id }, compute: true });
+      passes.push({ wgsl, inputs: [input], target: { kind: 'temp', id }, compute: true, body: '', call: '' });
     } else if (def.kind === 'render3d') {
       const input = node.in![0];
       materialize(input);
@@ -317,7 +331,7 @@ export function compileEffect(graph: EffectGraph): CompiledEffect {
         .filter((p) => !p.structural)
         .map((p) => `fn p_${p.name}() -> f32 {\n  return ${param(id, p.name)};\n}`);
       const wgsl = [HEADER, PRELUDE, SCENE_PRELUDE, ...accessors, def.scene!.wgsl.trim()].join('\n\n');
-      passes.push({ wgsl, inputs: [input], target: { kind: 'temp', id }, draws: def.scene!.draws });
+      passes.push({ wgsl, inputs: [input], target: { kind: 'temp', id }, draws: def.scene!.draws, body: '', call: '' });
     } else {
       temps.set(id, 1);
       fusedPass(id, true, { kind: 'temp', id });

@@ -23,6 +23,8 @@ Fonts are bundled from `@fontsource/*` (imported in `src/main.ts`); there are no
 
 `?diag` opens the device probe instead of the app (`src/app/Diag.svelte`, `probe.ts`, `report.ts`): WebGPU/WebGL2/video support, a speed test and the proposed tier, with a report to send back. The error screen links to it. Tiers and phases: `PLAN-DEVICES.md`.
 
+`?gpu=gl` forces the WebGL2 backend (the worker falls back to it on its own when WebGPU gives no adapter or device): processors and 3D scenes are hidden there, and the ops' WGSL is translated, so write snippets in the plain typed dialect `glsl.ts` understands (`tests/glsl.test.ts` translates every pass of every preset). Images keep row 0 = top in both backends; only the present pass flips.
+
 `?gpu=compat` forces WebGPU compatibility mode (WebGPU over OpenGL ES, what phones without a usable Vulkan driver get): any Chrome then enforces its limits and validation, so run every preset with it after engine changes. `Engine.create` falls back to that adapter on its own; processors are hidden from the gallery when the device can't give them 256 invocations.
 
 ### Deployment
@@ -58,6 +60,8 @@ src/dsl/       chainable Hydra-style builder → EffectGraph (pure, no GPU); m.m
 src/signals/   LFO + touch sources, mapped onto params every frame (runs in the worker)
 src/presets/   gallery effects written with the DSL
 src/gpu/       engine.ts: Engine (device, pipelines, camera texture) + Stage per surface
+               gl-engine.ts: the WebGL2 backend (same passes, 2D effects only) for phones with no WebGPU adapter;
+               glsl.ts translates the ops' WGSL to GLSL ES 3.00; renderer.ts is what the worker needs from either
                (viewfinder, each live thumbnail): o0–o3 ping-pong, temps, present + xerox pass
 src/render/    worker.ts (owns GPU, canvases, camera frames, recorder, signals), protocol.ts (messages)
 src/io/        camera.ts: getUserMedia → MediaStreamTrackProcessor → transferred stream; hardware zoom

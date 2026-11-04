@@ -11,6 +11,7 @@ import { compileEffect, MAX_PARAMS, MAX_PASS_INPUTS, type CompiledEffect } from 
 import type { EffectGraph } from '../graph/types';
 import { OUTPUTS } from '../graph/types';
 import { buildGlyphAtlas, buildStampAtlas, stampCodes, STAMP_CHARS, STAMP_H, STAMP_W } from './glyphs';
+import type { Renderer } from './renderer';
 
 const BUFFER_FORMAT: GPUTextureFormat = 'rgba16float';
 
@@ -183,8 +184,8 @@ const DEPTH_FORMAT: GPUTextureFormat = 'depth24plus';
 const PROCESSOR_INVOCATIONS = 256;
 
 /** The house look, shared by every surface (DESIGN.md, Revelado). */
-const HOUSE = { ramp: 0.7, levels: 12, dither: 2 };
-const STAMP_MAX = 32;
+export const HOUSE = { ramp: 0.7, levels: 12, dither: 2 };
+export const STAMP_MAX = 32;
 const PRESENT_SIZE = 32 + STAMP_MAX * 4;
 
 interface LoadedEffect {
@@ -486,7 +487,7 @@ class Stage {
   }
 }
 
-export class Engine {
+export class Engine implements Renderer {
   readonly device: GPUDevice;
   readonly format: GPUTextureFormat;
   readonly sampler: GPUSampler;

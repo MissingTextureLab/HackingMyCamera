@@ -9,7 +9,7 @@
   import type { FromWorker, MacroInfo, ToWorker } from '../render/protocol';
   import type { EngineStats } from '../gpu/engine';
   import type { EffectGraph } from '../graph/types';
-  import { needsCompute } from '../graph/compile';
+  import { needs3d, needsCompute } from '../graph/compile';
   import { diagnose, readEnv, type Diagnosis } from './diagnose';
 
   let canvas: HTMLCanvasElement;
@@ -125,8 +125,9 @@
     switch (m.type) {
       case 'ready':
         workerReady = true;
-        if (!m.compute) presets = PRESETS.filter((p) => !needsCompute(p));
+        if (!m.compute || m.mode === 'gl') presets = PRESETS.filter((p) => !needsCompute(p) && (m.mode !== 'gl' || !needs3d(p)));
         if (m.mode === 'compat') say('MODO COMPATIBLE');
+        if (m.mode === 'gl') say('MODO WEBGL2');
         selectEffect(effectId, false);
         for (const t of pendingThumbs.splice(0)) sendThumb(t.id, t.canvas);
         send({ type: 'grade', mode: grade });
@@ -324,16 +325,13 @@
   });
 
   onMount(() => {
-    if (!navigator.gpu) {
-      showFatal('SIN WEBGPU');
-      return;
-    }
     worker = new Worker(new URL('../render/worker.ts', import.meta.url), { type: 'module' });
     worker.addEventListener('message', onMessage);
     worker.addEventListener('error', (e) => showFatal(`WORKER: ${e.message}`));
     const offscreen = canvas.transferControlToOffscreen();
-    // ?gpu=compat forces WebGPU compatibility mode, to test what OpenGL ES phones get
-    const gpu = new URLSearchParams(location.search).get('gpu') === 'compat' ? 'compat' : undefined;
+    // ?gpu=compat forces WebGPU compatibility mode, ?gpu=gl the WebGL2 backend: to test what those phones get
+    const flag = new URLSearchParams(location.search).get('gpu');
+    const gpu = flag === 'compat' || flag === 'gl' ? flag : undefined;
     send({ type: 'init', canvas: offscreen, ...physicalSize(), gpu }, [offscreen]);
 
     const ro = new ResizeObserver(() => send({ type: 'resize', ...physicalSize() }));

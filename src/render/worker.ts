@@ -2,6 +2,8 @@
 // so the UI thread can never stall a frame.
 
 import { Engine } from '../gpu/engine';
+import { GlEngine } from '../gpu/gl-engine';
+import type { Renderer } from '../gpu/renderer';
 import { Recorder } from '../capture/recorder';
 import { Signals } from '../signals';
 import { validateEffect } from '../graph/validate';
@@ -16,7 +18,24 @@ const scope = self as unknown as WorkerScope;
 const post = (m: FromWorker, transfer?: Transferable[]) => scope.postMessage(m, transfer);
 const fail = (e: unknown) => post({ type: 'error', message: e instanceof Error ? e.message : String(e) });
 
-let engine: Engine | null = null;
+let engine: Renderer | null = null;
+
+/** WebGPU, or WebGL2 where Chrome gives this phone no adapter (`?gpu=gl` forces it, `?gpu=compat` WebGPU compatibility mode). */
+async function createRenderer(canvas: OffscreenCanvas, gpu?: 'compat' | 'gl'): Promise<Renderer> {
+  if (gpu === 'gl') return GlEngine.create(canvas);
+  try {
+    return await Engine.create(canvas, { compat: gpu === 'compat' });
+  } catch (e) {
+    // no adapter or device: the canvas is still untouched, so WebGL2 can take it
+    const message = e instanceof Error ? e.message : String(e);
+    if (gpu === 'compat' || !/^SIN (WEBGPU|ADAPTADOR|DISPOSITIVO)/.test(message)) throw e;
+    try {
+      return await GlEngine.create(canvas);
+    } catch {
+      throw e;
+    }
+  }
+}
 const recorder = new Recorder();
 const signals = new Signals();
 const writeParam = (slot: number, value: number) => engine!.setParam(slot, value);
@@ -121,7 +140,7 @@ scope.addEventListener('message', async (e) => {
         msg.canvas.width = w;
         msg.canvas.height = h;
         try {
-          engine = await Engine.create(msg.canvas, { compat: msg.gpu === 'compat' });
+          engine = await createRenderer(msg.canvas, msg.gpu);
         } catch (err) {
           // without an engine there is nothing to show: the app puts up the error screen
           post({ type: 'error', message: err instanceof Error ? err.message : String(err), fatal: true });
