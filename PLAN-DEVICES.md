@@ -1,6 +1,6 @@
 # Plan — Una app, varios niveles según el teléfono
 
-Estado: propuesta (2026-11-04). F0 y F1 hechas (falta recoger informes). Complementa `PLAN.md` (§5 "WebGPU-only") y `DESIGN.md`; si algo choca, mandan esos dos.
+Estado: propuesta (2026-11-04). F0, F1 y F1b hechas (falta recoger informes). Complementa `PLAN.md` (§5 "WebGPU-only") y `DESIGN.md`; si algo choca, mandan esos dos.
 
 Motivo: varios amigos abren la app y ven **SIN ADAPTADOR GPU**. Hoy el motor es solo WebGPU y solo se probó en un Adreno 8xx (Android real, `PLAN.md` §5). Un móvil sin WebGPU ve la pantalla de error y nada más.
 
@@ -71,9 +71,10 @@ Estimación gruesa: es varias veces el tamaño de cualquier otra fase del proyec
 |---|---|---|
 | **F0** | Pantalla de error con motivo, specs del móvil, copiar informe y reintentar (`src/app/diagnose.ts`) | **Hecha** (tests y `svelte-check` pasan; falta verla en un móvil) |
 | **F1** | `?diag` (`src/app/Diag.svelte`, `probe.ts`, `report.ts`): sondeo completo (adaptador, worker, límites, WebGL2, vídeo, prueba de velocidad WebGPU y WebGL2 a 1280×720) y nivel propuesto; ENVIAR (menú compartir de Android) / COPIAR, con el JSON crudo al final. **Hecha**; falta pedir a 8–10 amigos que lo abran y lo pasen, y abrirlo en el móvil de referencia (Adreno 8xx) para calibrar `FAST_MS` / `SLOW_MS` en `report.ts` | Tabla de dispositivos real: modelo, Android, Chrome, ¿WebGPU?, ms |
+| **F1b** | **Modo compatible de WebGPU** (WebGPU sobre OpenGL ES): `Engine.create` lo intenta antes del adaptador por software; la galería oculta los `processor` si el dispositivo no llega a 256 invocaciones; `?gpu=compat` lo fuerza en cualquier Chrome para probar; `?diag` lo sondea. Puede rescatar móviles sin Vulkan válido sin escribir el backend WebGL2. Probado en Chrome 152 de escritorio forzado (las 12 miniaturas sin errores de validación); **falta un móvil real** | Un móvil que veía SIN ADAPTADOR GPU abre la app y dice MODO COMPATIBLE |
 | **F2** | `tier.ts` + `TierConfig` + nivel B en WebGPU (tope de render, miniaturas, degradación en marcha) | Un móvil justo llega a 30 fps estables en la galería |
 | **F3** | `requires` en ops/presets + filtro en galería + `validateEffect` | Un móvil sin cómputo no ve `sort` y no se rompe |
-| **F4** | Backend WebGL2 (§5), solo si F1 muestra que hace falta | Los efectos del nivel C coinciden con WebGPU dentro de tolerancia y se ven bien en un móvil sin WebGPU |
+| **F4** | Backend WebGL2 (§5), solo si F1 y F1b muestran que hace falta (móviles sin adaptador ni en modo compatible) | Los efectos del nivel C coinciden con WebGPU dentro de tolerancia y se ven bien en un móvil sin WebGPU |
 | **F5** | Telemetría opcional (consentida): nivel elegido, fps, motivo de fallo | Se sabe qué fracción usa cada nivel |
 
 ## 7. Qué se sabe y qué no

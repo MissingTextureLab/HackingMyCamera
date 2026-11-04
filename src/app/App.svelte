@@ -8,17 +8,22 @@
   import { Tilt } from '../io/motion';
   import type { FromWorker, MacroInfo, ToWorker } from '../render/protocol';
   import type { EngineStats } from '../gpu/engine';
+  import type { EffectGraph } from '../graph/types';
+  import { needsCompute } from '../graph/compile';
   import { diagnose, readEnv, type Diagnosis } from './diagnose';
 
   let canvas: HTMLCanvasElement;
   let worker: Worker;
   const send = (m: ToWorker, transfer: Transferable[] = []) => worker.postMessage(m, transfer);
 
+  /** The gallery: PRESETS minus what this GPU cannot run (known once the worker is ready). */
+  let presets = $state.raw<EffectGraph[]>(PRESETS); // raw: graphs are posted to the worker
+
   // Thumbnail canvases arrive before the worker is ready; hand them over once it is.
   let workerReady = false;
   const pendingThumbs: { id: string; canvas: OffscreenCanvas }[] = [];
   function sendThumb(id: string, thumb: OffscreenCanvas) {
-    const graph = PRESETS.find((p) => p.id === id);
+    const graph = presets.find((p) => p.id === id);
     if (graph) send({ type: 'thumb', id, canvas: thumb, graph }, [thumb]);
   }
   function queueThumb(id: string, thumb: OffscreenCanvas) {
@@ -29,7 +34,7 @@
   // effect
   let effectId = $state(PRESETS[0].id);
   // not named `effect`: Svelte would read `$effect` as a store subscription to it
-  const active = $derived(PRESETS.find((p) => p.id === effectId)!);
+  const active = $derived(presets.find((p) => p.id === effectId)!);
   /** By gesture: [A, B, C]; an effect may leave some empty. */
   let macros = $state<(MacroInfo | undefined)[]>([]);
   let titleOn = $state(false);
@@ -120,6 +125,8 @@
     switch (m.type) {
       case 'ready':
         workerReady = true;
+        if (!m.compute) presets = PRESETS.filter((p) => !needsCompute(p));
+        if (m.mode === 'compat') say('MODO COMPATIBLE');
         selectEffect(effectId, false);
         for (const t of pendingThumbs.splice(0)) sendThumb(t.id, t.canvas);
         send({ type: 'grade', mode: grade });
@@ -185,7 +192,7 @@
   }
 
   function selectEffect(id: string, announce = true) {
-    const graph = PRESETS.find((p) => p.id === id);
+    const graph = presets.find((p) => p.id === id);
     if (!graph) return;
     effectId = id;
     macros = [];
@@ -325,7 +332,9 @@
     worker.addEventListener('message', onMessage);
     worker.addEventListener('error', (e) => showFatal(`WORKER: ${e.message}`));
     const offscreen = canvas.transferControlToOffscreen();
-    send({ type: 'init', canvas: offscreen, ...physicalSize() }, [offscreen]);
+    // ?gpu=compat forces WebGPU compatibility mode, to test what OpenGL ES phones get
+    const gpu = new URLSearchParams(location.search).get('gpu') === 'compat' ? 'compat' : undefined;
+    send({ type: 'init', canvas: offscreen, ...physicalSize(), gpu }, [offscreen]);
 
     const ro = new ResizeObserver(() => send({ type: 'resize', ...physicalSize() }));
     ro.observe(canvas);
@@ -344,7 +353,7 @@
   const recClock = $derived(`${String(Math.floor(recSeconds / 60)).padStart(2, '0')}:${String(recSeconds % 60).padStart(2, '0')}`);
   const lens = $derived(source === 'test' ? 'TEST' : facing === 'user' ? 'FRON' : 'TRAS');
   const two = (n: number) => String(n).padStart(2, '0');
-  const position = $derived(`${two(PRESETS.indexOf(active) + 1)}/${two(PRESETS.length)}`);
+  const position = $derived(`${two(presets.indexOf(active) + 1)}/${two(presets.length)}`);
 
   // the readouts sit just above the deck, whatever its height is
   let deckH = $state(0);
@@ -415,7 +424,7 @@
     <div class="rail" aria-hidden="true">
       <span class="pos label cut-bl">{position}</span>
     </div>
-    <EffectStrip effects={PRESETS} selected={effectId} onselect={(id) => selectEffect(id)} onthumb={queueThumb} />
+    <EffectStrip effects={presets} selected={effectId} onselect={(id) => selectEffect(id)} onthumb={queueThumb} />
     <div class="row">
       <button class="key cut-tr" type="button" onclick={flip} aria-label="Cambiar cámara"><span class="label cut-tr">F/T</span></button>
       <Shutter

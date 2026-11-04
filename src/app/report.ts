@@ -14,14 +14,16 @@ export function proposeTier(p: Probe): { tier: Tier; reasons: string[] } {
   const g = p.gpu;
   const reasons: string[] = [];
   if (!g) reasons.push('SIN WEBGPU');
-  else if (!g.attempts.hp && !g.attempts.plain && !g.attempts.fallback) reasons.push('SIN ADAPTADOR');
+  else if (!g.attempts.hp && !g.attempts.plain && !g.attempts.compat && !g.attempts.fallback) reasons.push('SIN ADAPTADOR');
   else if (g.software) reasons.push('WEBGPU POR SOFTWARE');
   else if (!g.device) reasons.push('SIN DISPOSITIVO');
   else if (p.worker && !p.worker.adapter) reasons.push('SIN WEBGPU EN WORKER');
   else {
-    if (g.benchMs === undefined) return { tier: 'B', reasons: ['SIN MEDIDA'] };
-    if (g.benchMs <= FAST_MS) return { tier: 'A', reasons: [] };
-    return { tier: 'B', reasons: [g.benchMs > SLOW_MS ? 'GPU MUY LENTA' : 'GPU JUSTA'] };
+    // compatibility mode runs the app with lower limits: never the full tier
+    const notes = [...(g.compatMode ? ['MODO COMPATIBLE'] : []), ...(g.compute ? [] : ['SIN CÓMPUTO'])];
+    if (g.benchMs === undefined) return { tier: 'B', reasons: [...notes, 'SIN MEDIDA'] };
+    if (g.benchMs <= FAST_MS && !notes.length) return { tier: 'A', reasons: [] };
+    return { tier: 'B', reasons: [...notes, ...(g.benchMs > SLOW_MS ? ['GPU MUY LENTA'] : g.benchMs > FAST_MS ? ['GPU JUSTA'] : [])] };
   }
   if (!p.gl.ok) return { tier: '-', reasons: [...reasons, 'SIN WEBGL2'] };
   if (!p.gl.halfFloatRT) reasons.push('SIN BÚFER FLOAT');
@@ -42,11 +44,11 @@ export function reportRows(p: Probe): [key: string, value: string][] {
     ['NIVEL', `${tier}${reasons.length ? ` · ${reasons.join(' · ')}` : ''}`],
     ['MÓVIL', [p.env.model ?? '?', `ANDROID ${p.env.android ?? '?'}`].join(' · ')],
     ['NAVEGADOR', `${browser.name} ${chromeMajor(p.env.ua) ?? '?'}${p.standalone ? ' · INSTALADA' : ''}`],
-    ['WEBGPU', !g ? 'NO' : `ALTO ${yn(g.attempts.hp)} · NORMAL ${yn(g.attempts.plain)} · SOFTWARE ${yn(g.attempts.fallback)}`],
+    ['WEBGPU', !g ? 'NO' : `ALTO ${yn(g.attempts.hp)} · NORMAL ${yn(g.attempts.plain)} · COMPATIBLE ${yn(g.attempts.compat)} · SOFTWARE ${yn(g.attempts.fallback)}`],
   ];
   if (g && (g.vendor || g.architecture || g.description)) rows.push(['GPU', [g.vendor, g.architecture, g.description].filter(Boolean).join(' · ')]);
-  if (g && (g.attempts.hp || g.attempts.plain || g.attempts.fallback)) {
-    rows.push(['DISPOSITIVO', g.device ? 'SÍ' : `NO · ${g.deviceError ?? '?'}`]);
+  if (g && (g.attempts.hp || g.attempts.plain || g.attempts.compat || g.attempts.fallback)) {
+    rows.push(['DISPOSITIVO', g.device ? `SÍ · ${g.compatMode ? 'COMPATIBLE' : 'COMPLETO'} · CÓMPUTO ${yn(g.compute)}` : `NO · ${g.deviceError ?? '?'}`]);
     if (g.deviceError && g.device) rows.push(['ERROR', g.deviceError]);
     const l = g.limits;
     rows.push(['LÍMITES', `TEX ${l.maxTextureDimension2D} · STORAGE ${mb(l.maxStorageBufferBindingSize)} · HILOS ${l.maxComputeInvocationsPerWorkgroup} · SALIDAS ${l.maxColorAttachments}`]);

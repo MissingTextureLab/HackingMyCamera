@@ -179,6 +179,8 @@ export interface EngineStats {
 }
 
 const DEPTH_FORMAT: GPUTextureFormat = 'depth24plus';
+/** Workgroup size of the processors in registry.ts (`@workgroup_size(256)`). */
+const PROCESSOR_INVOCATIONS = 256;
 
 /** The house look, shared by every surface (DESIGN.md, Revelado). */
 const HOUSE = { ramp: 0.7, levels: 12, dither: 2 };
@@ -497,6 +499,10 @@ export class Engine {
   readonly stampFont: GPUTexture;
   readonly presentPipeline: GPURenderPipeline;
   readonly main: Stage;
+  /** 'compat': WebGPU compatibility mode (OpenGL ES underneath), with its lower limits. */
+  readonly mode: 'core' | 'compat';
+  /** Processors (compute, e.g. sort) fit this device's limits. */
+  readonly compute: boolean;
 
   cam: GPUTexture;
   camSize: [number, number] = [0, 0];
@@ -532,6 +538,9 @@ export class Engine {
     this.glyphs = glyphs;
     this.stampFont = stampFont;
     this.device = device;
+    this.mode = device.features.has('core-features-and-limits') ? 'core' : 'compat';
+    this.compute =
+      device.limits.maxComputeInvocationsPerWorkgroup >= PROCESSOR_INVOCATIONS && device.limits.maxComputeWorkgroupSizeX >= PROCESSOR_INVOCATIONS;
     this.format = navigator.gpu.getPreferredCanvasFormat();
     this.sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
 
@@ -596,17 +605,28 @@ export class Engine {
     this.main = new Stage(this, canvas);
   }
 
-  static async create(canvas: OffscreenCanvas): Promise<Engine> {
+  /**
+   * `compat` forces WebGPU compatibility mode (`?gpu=compat`): the restrictions of a phone whose
+   * WebGPU runs on OpenGL ES, testable on any Chrome.
+   */
+  static async create(canvas: OffscreenCanvas, opts: { compat?: boolean } = {}): Promise<Engine> {
     if (!navigator.gpu) throw new Error('SIN WEBGPU');
-    // Some drivers reject a power preference or only offer the software adapter: try the plain request, then SwiftShader.
-    const adapter =
-      (await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' })) ??
-      (await navigator.gpu.requestAdapter()) ??
-      (await navigator.gpu.requestAdapter({ forceFallbackAdapter: true }));
+    const req = (o?: GPURequestAdapterOptions) => navigator.gpu.requestAdapter(o).catch(() => null);
+    // Compatibility mode runs WebGPU over OpenGL ES where Chrome has no usable Vulkan driver.
+    const compat = () => req({ featureLevel: 'compatibility' } as GPURequestAdapterOptions);
+    // Some drivers reject a power preference: try the plain request, then compatibility mode, then SwiftShader.
+    const adapter = opts.compat
+      ? await compat()
+      : ((await req({ powerPreference: 'high-performance' })) ?? (await req()) ?? (await compat()) ?? (await req({ forceFallbackAdapter: true })));
     if (!adapter) throw new Error('SIN ADAPTADOR GPU');
     const requiredFeatures: GPUFeatureName[] = [];
     if (adapter.features.has('timestamp-query')) requiredFeatures.push('timestamp-query');
-    const device = await adapter.requestDevice({ requiredFeatures }).catch((e: unknown) => {
+    // a compatibility adapter on capable hardware still gives a full device when asked
+    if (!opts.compat && adapter.features.has('core-features-and-limits')) requiredFeatures.push('core-features-and-limits');
+    // compatibility devices start at 128 invocations; processors (sort) need 256 if the hardware has them
+    const limit = (name: 'maxComputeInvocationsPerWorkgroup' | 'maxComputeWorkgroupSizeX') => Math.min(adapter.limits[name], PROCESSOR_INVOCATIONS);
+    const requiredLimits = { maxComputeInvocationsPerWorkgroup: limit('maxComputeInvocationsPerWorkgroup'), maxComputeWorkgroupSizeX: limit('maxComputeWorkgroupSizeX') };
+    const device = await adapter.requestDevice({ requiredFeatures, requiredLimits }).catch((e: unknown) => {
       const info = adapter.info as GPUAdapterInfo | undefined; // Chrome < 127 has no `info`
       throw new Error(`SIN DISPOSITIVO GPU: ${[info?.vendor, info?.architecture].filter(Boolean).join(' ')} ${e instanceof Error ? e.message : String(e)}`.trim());
     });

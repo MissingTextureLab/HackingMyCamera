@@ -5,7 +5,7 @@ import type { EngineStats } from '../gpu/engine';
 import type { MotionSnapshot, TouchSnapshot } from '../signals';
 
 export type ToWorker =
-  | { type: 'init'; canvas: OffscreenCanvas; width: number; height: number }
+  | { type: 'init'; canvas: OffscreenCanvas; width: number; height: number; gpu?: 'compat' }
   | { type: 'frames'; stream: ReadableStream<VideoFrame>; mirror: boolean }
   | { type: 'frame'; frame: VideoFrame; mirror: boolean }
   | { type: 'testSource'; camFps?: number }
@@ -34,7 +34,7 @@ export interface MacroInfo {
 }
 
 export type FromWorker =
-  | { type: 'ready' }
+  | { type: 'ready'; mode: 'core' | 'compat'; compute: boolean }
   | { type: 'error'; message: string; fatal?: boolean }
   | { type: 'effect'; id: string; macros: MacroInfo[] }
   | { type: 'photo'; blob: Blob }

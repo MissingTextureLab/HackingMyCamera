@@ -5,8 +5,12 @@
 import { readEnv, type Env } from './diagnose';
 
 export interface GpuProbe {
-  /** requestAdapter with high-performance / plain / forceFallbackAdapter, in the order Engine.create tries them. */
-  attempts: { hp: boolean; plain: boolean; fallback: boolean };
+  /** requestAdapter with high-performance / plain / compatibility / forceFallbackAdapter, in the order Engine.create tries them. */
+  attempts: { hp: boolean; plain: boolean; compat: boolean; fallback: boolean };
+  /** The device is in compatibility mode (WebGPU over OpenGL ES, lower limits). */
+  compatMode: boolean;
+  /** Processors (sort) fit: 256 invocations per workgroup. */
+  compute: boolean;
   vendor?: string;
   architecture?: string;
   description?: string;
@@ -136,10 +140,13 @@ async function probeGpu(): Promise<GpuProbe | null> {
   const req = (o?: GPURequestAdapterOptions) => navigator.gpu.requestAdapter(o).catch(() => null);
   const hp = await req({ powerPreference: 'high-performance' });
   const plain = await req();
+  const compat = await req({ featureLevel: 'compatibility' } as GPURequestAdapterOptions);
   const fallback = await req({ forceFallbackAdapter: true });
-  const adapter = hp ?? plain ?? fallback;
+  const adapter = hp ?? plain ?? compat ?? fallback;
   const out: GpuProbe = {
-    attempts: { hp: !!hp, plain: !!plain, fallback: !!fallback },
+    attempts: { hp: !!hp, plain: !!plain, compat: !!compat, fallback: !!fallback },
+    compatMode: false,
+    compute: false,
     software: false,
     features: [],
     limits: { maxTextureDimension2D: 0, maxStorageBufferBindingSize: 0, maxComputeInvocationsPerWorkgroup: 0, maxColorAttachments: 0 },
@@ -152,7 +159,7 @@ async function probeGpu(): Promise<GpuProbe | null> {
   out.vendor = info?.vendor || undefined;
   out.architecture = info?.architecture || undefined;
   out.description = info?.description || undefined;
-  out.software = !!(info?.isFallbackAdapter ?? (adapter as GPUAdapter & { isFallbackAdapter?: boolean }).isFallbackAdapter) || (!hp && !plain);
+  out.software = !!(info?.isFallbackAdapter ?? (adapter as GPUAdapter & { isFallbackAdapter?: boolean }).isFallbackAdapter) || (!hp && !plain && !compat);
   out.features = [...adapter.features].sort();
   const l = adapter.limits;
   out.limits = {
@@ -162,14 +169,22 @@ async function probeGpu(): Promise<GpuProbe | null> {
     maxColorAttachments: l.maxColorAttachments,
   };
 
+  // the same request as Engine.create
+  const requiredFeatures: GPUFeatureName[] = adapter.features.has('core-features-and-limits') ? ['core-features-and-limits'] : [];
+  const limit = (name: 'maxComputeInvocationsPerWorkgroup' | 'maxComputeWorkgroupSizeX') => Math.min(adapter.limits[name], 256);
   let device: GPUDevice;
   try {
-    device = await adapter.requestDevice();
+    device = await adapter.requestDevice({
+      requiredFeatures,
+      requiredLimits: { maxComputeInvocationsPerWorkgroup: limit('maxComputeInvocationsPerWorkgroup'), maxComputeWorkgroupSizeX: limit('maxComputeWorkgroupSizeX') },
+    });
   } catch (e) {
     out.deviceError = msg(e);
     return out;
   }
   out.device = true;
+  out.compatMode = !device.features.has('core-features-and-limits');
+  out.compute = device.limits.maxComputeInvocationsPerWorkgroup >= 256 && device.limits.maxComputeWorkgroupSizeX >= 256;
   try {
     const module = device.createShaderModule({ code: WGSL });
     const format: GPUTextureFormat = 'rgba16float'; // the engine's buffer format

@@ -5,7 +5,9 @@ import { FAST_MS, proposeTier, reportRows, reportText } from '../src/app/report'
 const UA = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36';
 
 const gpu = (o: Partial<GpuProbe> = {}): GpuProbe => ({
-  attempts: { hp: true, plain: true, fallback: false },
+  attempts: { hp: true, plain: true, compat: true, fallback: false },
+  compatMode: false,
+  compute: true,
   vendor: 'qualcomm',
   architecture: 'adreno-8xx',
   software: false,
@@ -28,7 +30,7 @@ const probe = (o: Partial<Probe> = {}): Probe => ({
   ...o,
 });
 
-const noAdapter = gpu({ attempts: { hp: false, plain: false, fallback: false }, device: false, benchMs: undefined });
+const noAdapter = gpu({ attempts: { hp: false, plain: false, compat: false, fallback: false }, device: false, benchMs: undefined });
 
 describe('?diag tier', () => {
   it('gives A to a fast WebGPU phone', () => {
@@ -45,9 +47,14 @@ describe('?diag tier', () => {
   });
 
   it('does not count the software adapter as WebGPU', () => {
-    const t = proposeTier(probe({ gpu: gpu({ attempts: { hp: false, plain: false, fallback: true }, software: true }) }));
+    const t = proposeTier(probe({ gpu: gpu({ attempts: { hp: false, plain: false, compat: false, fallback: true }, software: true }) }));
     expect(t.tier).toBe('C');
     expect(t.reasons).toContain('WEBGPU POR SOFTWARE');
+  });
+
+  it('runs a compatibility-mode phone as B, and says when it cannot fit compute', () => {
+    const g = gpu({ attempts: { hp: false, plain: false, compat: true, fallback: true }, compatMode: true, compute: false });
+    expect(proposeTier(probe({ gpu: g }))).toEqual({ tier: 'B', reasons: ['MODO COMPATIBLE', 'SIN CÓMPUTO'] });
   });
 
   it('needs WebGPU in the worker, where the engine runs', () => {

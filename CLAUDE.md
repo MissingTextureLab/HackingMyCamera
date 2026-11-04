@@ -23,6 +23,8 @@ Fonts are bundled from `@fontsource/*` (imported in `src/main.ts`); there are no
 
 `?diag` opens the device probe instead of the app (`src/app/Diag.svelte`, `probe.ts`, `report.ts`): WebGPU/WebGL2/video support, a speed test and the proposed tier, with a report to send back. The error screen links to it. Tiers and phases: `PLAN-DEVICES.md`.
 
+`?gpu=compat` forces WebGPU compatibility mode (WebGPU over OpenGL ES, what phones without a usable Vulkan driver get): any Chrome then enforces its limits and validation, so run every preset with it after engine changes. `Engine.create` falls back to that adapter on its own; processors are hidden from the gallery when the device can't give them 256 invocations.
+
 ### Deployment
 
 Live at https://missingtexturelab.github.io/HackingMyCamera/ (repo `MissingTextureLab/HackingMyCamera`, public). Every push to `main` runs `.github/workflows/pages.yml`: tests, `pnpm build:pages` (base `/HackingMyCamera/`), deploy. Install on the phone from Chrome: ⋮ → Install app.

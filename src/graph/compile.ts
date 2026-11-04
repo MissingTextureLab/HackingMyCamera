@@ -117,6 +117,11 @@ function fragment(body: string) {
   return `@fragment\nfn fs(in: VSOut) -> @location(0) vec4f {\n  FC = in.pos.xy;\n  return clamp(${body}, vec4f(0.0), vec4f(64.0));\n}`;
 }
 
+/** The graph has a processor (compute pass), which a compatibility-mode device may not fit. */
+export function needsCompute(graph: EffectGraph): boolean {
+  return Object.values(graph.nodes).some((n) => OPS[n.op]?.kind === 'processor');
+}
+
 export function compileEffect(graph: EffectGraph): CompiledEffect {
   const nodes = graph.nodes;
   const slots: Record<string, number> = {};
