@@ -19,7 +19,20 @@ export interface CameraFeed {
   facing: Facing;
   /** Applies a total zoom ≥ 1. Returns the part left for the shader (digital zoom). */
   zoom(total: number): number;
+  /** The phone has a torch on this camera. */
+  torch: boolean;
+  setTorch(on: boolean): void;
+  /** Tap to focus is offered (x, y normalised in the image the camera delivers). */
+  canFocus: boolean;
+  /** Focuses at a point; without a point, back to continuous autofocus. */
+  focusAt(point?: { x: number; y: number }): void;
   stop(): void;
+}
+
+export interface CameraOptions {
+  width: number;
+  height: number;
+  fps: number;
 }
 
 interface ZoomRange {
@@ -62,12 +75,12 @@ function pumpVideo(media: MediaStream, onFrame: (frame: VideoFrame) => void) {
   };
 }
 
-export async function openCamera(facing: Facing): Promise<CameraFeed> {
+export async function openCamera(facing: Facing, opts: CameraOptions = { width: 1280, height: 720, fps: 30 }): Promise<CameraFeed> {
   const video: MediaTrackConstraints & { zoom?: boolean } = {
     facingMode: { ideal: facing },
-    width: { ideal: 1280 },
-    height: { ideal: 720 },
-    frameRate: { ideal: 30 },
+    width: { ideal: opts.width },
+    height: { ideal: opts.height },
+    frameRate: { ideal: opts.fps },
   };
   let media: MediaStream;
   try {
@@ -83,7 +96,7 @@ export async function openCamera(facing: Facing): Promise<CameraFeed> {
   const processor = Processor ? new Processor<VideoFrame>({ track, maxBufferSize: 2 }) : null;
   let stopPump = () => {};
 
-  const caps = (track.getCapabilities?.() ?? {}) as MediaTrackCapabilities & { zoom?: ZoomRange };
+  const caps = (track.getCapabilities?.() ?? {}) as MediaTrackCapabilities & { zoom?: ZoomRange; torch?: boolean; focusMode?: string[] };
   const hw: ZoomRange | null = caps.zoom && caps.zoom.max > caps.zoom.min ? caps.zoom : null;
 
   // applyConstraints is async and can be slow: keep one in flight, apply the latest after.
@@ -105,12 +118,26 @@ export async function openCamera(facing: Facing): Promise<CameraFeed> {
       });
   };
 
+  const focusModes = caps.focusMode ?? [];
+  const canFocus = focusModes.includes('single-shot');
+  const apply = (c: Record<string, unknown>) => track.applyConstraints({ advanced: [c as MediaTrackConstraintSet] }).catch(() => {});
+
   return {
     stream: processor?.readable ?? null,
     pump(onFrame) {
       stopPump = pumpVideo(media, onFrame);
     },
     facing,
+    torch: !!caps.torch,
+    setTorch(on) {
+      if (caps.torch) apply({ torch: on });
+    },
+    canFocus,
+    focusAt(point) {
+      if (!canFocus) return;
+      if (point) apply({ focusMode: 'single-shot', pointsOfInterest: [point] });
+      else if (focusModes.includes('continuous')) apply({ focusMode: 'continuous' });
+    },
     zoom(total) {
       const t = Math.min(MAX_ZOOM, Math.max(1, total));
       if (!hw) return t;

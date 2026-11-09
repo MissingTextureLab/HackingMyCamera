@@ -4,11 +4,32 @@
   interface Props {
     effects: EffectGraph[];
     selected: string;
+    favs: string[];
     onselect: (id: string) => void;
+    /** Long press: add to / remove from the favourites (they lead the strip). */
+    onfav: (id: string) => void;
     /** Each thumbnail canvas, handed over once so the render worker can draw it live. */
     onthumb: (id: string, canvas: OffscreenCanvas) => void;
   }
-  let { effects, selected, onselect, onthumb }: Props = $props();
+  let { effects, selected, favs, onselect, onfav, onthumb }: Props = $props();
+
+  const HOLD_MS = 500;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let held = false;
+  function press(id: string) {
+    held = false;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      held = true;
+      onfav(id);
+    }, HOLD_MS);
+  }
+  const release = () => clearTimeout(timer);
+  function choose(id: string) {
+    // the click that ends a long press must not select the effect
+    if (held) held = false;
+    else onselect(id);
+  }
 
   const SIZE = 48;
 
@@ -22,9 +43,21 @@
 
 <div class="strip" role="group" aria-label="Efectos">
   {#each effects as fx (fx.id)}
-    <button class="fx" type="button" aria-pressed={fx.id === selected} onclick={() => onselect(fx.id)}>
+    <button
+      class="fx"
+      type="button"
+      aria-pressed={fx.id === selected}
+      aria-label="{fx.code} {fx.name}{favs.includes(fx.id) ? ', favorito' : ''}. Mantén pulsado para marcar favorito"
+      onpointerdown={() => press(fx.id)}
+      onpointerup={release}
+      onpointerleave={release}
+      onpointercancel={release}
+      oncontextmenu={(e) => e.preventDefault()}
+      onclick={() => choose(fx.id)}
+    >
       <i class="tick" aria-hidden="true"></i>
       <span class="slot cut-br"><canvas class="thumb cut-br" use:live={fx.id} aria-hidden="true"></canvas></span>
+      {#if favs.includes(fx.id)}<i class="fav" aria-hidden="true"></i>{/if}
       <span class="code label">{fx.code} {fx.name}</span>
     </button>
   {/each}
@@ -53,6 +86,16 @@
     border: 0;
     padding: 0;
     cursor: pointer;
+  }
+  /* favourite: an acid square on the slot's top right corner */
+  .fav {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 8px;
+    height: 8px;
+    background: var(--acid);
+    pointer-events: none;
   }
   .fx:focus-visible {
     outline: 2px solid var(--focus);

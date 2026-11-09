@@ -8,6 +8,8 @@ import {
   Mp4OutputFormat,
   Output,
   QUALITY_HIGH,
+  QUALITY_LOW,
+  QUALITY_MEDIUM,
 } from 'mediabunny';
 
 export class Recorder {
@@ -17,12 +19,13 @@ export class Recorder {
   private last = 0;
   private inFlight = false;
   private failed: string | null = null;
+  private gap = 0;
 
   get active() {
     return this.output !== null;
   }
 
-  async begin(canvas: OffscreenCanvas, now: number) {
+  async begin(canvas: OffscreenCanvas, now: number, opts: { fps: number; quality: 0 | 1 | 2 } = { fps: 30, quality: 2 }) {
     if (this.output) return;
     const codec = await getFirstEncodableVideoCodec(['avc', 'vp9', 'av1'], {
       width: canvas.width,
@@ -30,8 +33,10 @@ export class Recorder {
     });
     if (!codec) throw new Error('SIN CODIFICADOR');
     const output = new Output({ format: new Mp4OutputFormat({ fastStart: 'in-memory' }), target: new BufferTarget() });
-    const source = new CanvasSource(canvas, { codec, quality: QUALITY_HIGH, keyFrameInterval: 1 });
-    output.addVideoTrack(source, { frameRate: 30 });
+    const source = new CanvasSource(canvas, { codec, quality: [QUALITY_LOW, QUALITY_MEDIUM, QUALITY_HIGH][opts.quality], keyFrameInterval: 1 });
+    output.addVideoTrack(source, { frameRate: opts.fps });
+    // render frames are 60/s: keep only as many as the chosen rate asks for
+    this.gap = (1000 / opts.fps) * 0.8;
     await output.start();
     this.output = output;
     this.source = source;
@@ -46,7 +51,7 @@ export class Recorder {
    */
   frame(now: number) {
     const source = this.source;
-    if (!source || this.inFlight || this.failed) return;
+    if (!source || this.inFlight || this.failed || now - this.last < this.gap) return;
     const t = (now - this.start) / 1000;
     const d = Math.max((now - this.last) / 1000, 1 / 120);
     this.last = now;

@@ -17,6 +17,7 @@ export type ToWorker =
   | { type: 'touch'; state: TouchSnapshot }
   | { type: 'motion'; state: MotionSnapshot }
   | { type: 'thumb'; id: string; canvas: OffscreenCanvas; graph: EffectGraph }
+  | { type: 'capture'; side: number; fps: number; quality: 0 | 1 | 2 }
   | { type: 'photo' }
   | { type: 'recStart' }
   | { type: 'recStop' };

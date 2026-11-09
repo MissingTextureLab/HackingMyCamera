@@ -1,17 +1,16 @@
 <script lang="ts">
-  // Tap: photo. Hold: record while held (DESIGN.md, Viewfinder).
+  // Tap only (the fingers stay free for the parameters): in photo mode a tap
+  // shoots; in video mode a tap starts the recording and the next one stops it.
   interface Props {
     recording: boolean;
+    mode: 'photo' | 'video';
     onphoto: () => void;
     onrecstart: () => void;
     onrecstop: () => void;
   }
-  let { recording, onphoto, onrecstart, onrecstop }: Props = $props();
+  let { recording, mode, onphoto, onrecstart, onrecstop }: Props = $props();
 
-  const HOLD_MS = 350;
   let down = $state(false);
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let holding = false;
 
   function press(e: PointerEvent) {
     e.preventDefault();
@@ -19,25 +18,29 @@
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     } catch {}
     down = true;
-    holding = false;
-    timer = setTimeout(() => {
-      holding = true;
-      onrecstart();
-    }, HOLD_MS);
+  }
+
+  function fire() {
+    if (mode === 'video' || recording) {
+      if (recording) onrecstop();
+      else onrecstart();
+    } else onphoto();
   }
 
   function release() {
     if (!down) return;
     down = false;
-    clearTimeout(timer);
-    if (holding) onrecstop();
-    else onphoto();
+    fire();
+  }
+
+  function cancel() {
+    down = false;
   }
 
   function key(e: KeyboardEvent) {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      onphoto();
+      fire();
     }
   }
 </script>
@@ -46,11 +49,12 @@
   class="shutter"
   class:down
   class:rec={recording}
+  class:video={mode === 'video'}
   type="button"
-  aria-label="Foto; mantener para grabar"
+  aria-label={recording ? 'Parar grabación' : mode === 'video' ? 'Empezar a grabar' : 'Foto'}
   onpointerdown={press}
   onpointerup={release}
-  onpointercancel={release}
+  onpointercancel={cancel}
   onkeydown={key}
 ><i></i></button>
 
@@ -78,8 +82,12 @@
     border: 1px solid var(--lagoon);
     pointer-events: none;
   }
-  .rec::before {
+  .rec::before,
+  .video::before {
     border-color: var(--flash);
+  }
+  .video:not(.rec) i {
+    background: var(--flash);
   }
   .shutter:focus-visible {
     outline: 2px solid var(--focus);

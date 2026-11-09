@@ -50,9 +50,12 @@ let fps = 0;
 
 // Long side capped: hardware H.264 encoders top out around 1920 px, and it keeps
 // the fused shaders cheap on the phone. Even sizes for the encoder.
-const MAX_SIDE = 1920;
+let maxSide = 1920;
+let capture = { fps: 30, quality: 2 as 0 | 1 | 2 };
+let rawSize: [number, number] = [0, 0];
+const JPEG_QUALITY = [0.7, 0.85, 0.92];
 function fit(width: number, height: number): [number, number] {
-  const k = Math.min(1, MAX_SIDE / Math.max(width, height));
+  const k = Math.min(1, maxSide / Math.max(width, height));
   return [Math.max(2, Math.round((width * k) / 2) * 2), Math.max(2, Math.round((height * k) / 2) * 2)];
 }
 
@@ -123,7 +126,7 @@ async function snapshot() {
   const out = new OffscreenCanvas(frame.displayWidth, frame.displayHeight);
   out.getContext('2d')!.drawImage(frame, 0, 0);
   frame.close();
-  const blob = await out.convertToBlob({ type: 'image/jpeg', quality: 0.92 });
+  const blob = await out.convertToBlob({ type: 'image/jpeg', quality: JPEG_QUALITY[capture.quality] });
   post({ type: 'photo', blob });
 }
 
@@ -136,6 +139,7 @@ scope.addEventListener('message', async (e) => {
   try {
     switch (msg.type) {
       case 'init': {
+        rawSize = [msg.width, msg.height];
         const [w, h] = fit(msg.width, msg.height);
         msg.canvas.width = w;
         msg.canvas.height = h;
@@ -171,7 +175,15 @@ scope.addEventListener('message', async (e) => {
         source = 'test';
         break;
       case 'resize':
+        rawSize = [msg.width, msg.height];
         pendingResize = fit(msg.width, msg.height);
+        break;
+      case 'capture':
+        capture = { fps: msg.fps, quality: msg.quality };
+        if (msg.side !== maxSide) {
+          maxSide = msg.side;
+          if (rawSize[0]) pendingResize = fit(...rawSize);
+        }
         break;
       case 'effect': {
         // graphs may come from files or the editor: never trust their shape
@@ -207,7 +219,7 @@ scope.addEventListener('message', async (e) => {
       case 'recStart':
         signals.trigger('shot', performance.now() / 1000);
         signals.trigger('taken', performance.now() / 1000);
-        await recorder.begin(engine!.canvas, performance.now());
+        await recorder.begin(engine!.canvas, performance.now(), capture);
         post({ type: 'recStarted' });
         break;
       case 'recStop':

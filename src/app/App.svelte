@@ -3,6 +3,8 @@
   import EffectStrip from './EffectStrip.svelte';
   import Shutter from './Shutter.svelte';
   import Gallery from './Gallery.svelte';
+  import Settings from './Settings.svelte';
+  import { cameraSize, loadSettings, saveSettings, type Settings as Prefs } from './settings';
   import { clearCaptures, listCaptures, numberOf, removeCapture, saveCapture, type Capture } from '../capture/store';
   import { PRESETS } from '../presets';
   import { cameraSupported, MAX_ZOOM, openCamera, type CameraFeed, type Facing } from '../io/camera';
@@ -34,7 +36,18 @@
   }
 
   // effect
-  let effectId = $state(PRESETS[0].id);
+  // remembered between sessions: capture settings, camera, last effect, favourites, shutter mode
+  const initial = loadSettings();
+  let prefs = $state<Prefs>(initial);
+  function patch(p: Partial<Prefs>) {
+    const camera = (p.side !== undefined && p.side !== prefs.side) || (p.fps !== undefined && p.fps !== prefs.fps);
+    prefs = { ...prefs, ...p };
+    saveSettings(prefs);
+    send({ type: 'capture', side: prefs.side, fps: prefs.fps, quality: prefs.quality });
+    if (camera) startCamera();
+  }
+
+  let effectId = $state(PRESETS.some((p) => p.id === initial.effect) ? initial.effect! : PRESETS[0].id);
   // not named `effect`: Svelte would read `$effect` as a store subscription to it
   const active = $derived(presets.find((p) => p.id === effectId)!);
   /** By gesture: [A, B, C]; an effect may leave some empty. */
@@ -43,7 +56,11 @@
 
   // camera
   let feed: CameraFeed | null = null;
-  let facing = $state<Facing>('environment');
+  let facing = $state<Facing>(initial.facing);
+  let torchOk = $state(false);
+  let torchOn = $state(false);
+  let focusOk = $state(false);
+  let reticle = $state<{ x: number; y: number } | null>(null);
   let source = $state<'camera' | 'test'>('test');
 
   // capture
@@ -55,6 +72,7 @@
   /** Everything captured, newest first (kept in OPFS, so it outlives the session). */
   let captures = $state.raw<Capture[]>([]);
   let galleryOpen = $state(false);
+  let settingsOpen = $state(false);
   /** Clean mode: only the image and the shutter. */
   let clean = $state(false);
   let fullscreen = $state(false);
@@ -238,9 +256,12 @@
   }
 
   function selectEffect(id: string, announce = true) {
-    const graph = presets.find((p) => p.id === id);
+    // the remembered effect may be hidden on this GPU: fall back to the first
+    const graph = presets.find((p) => p.id === id) ?? presets[0];
     if (!graph) return;
+    id = graph.id;
     effectId = id;
+    if (prefs.effect !== id) patch({ effect: id });
     macros = [];
     send({ type: 'effect', graph });
     if (announce) {
@@ -252,6 +273,7 @@
   async function startCamera() {
     feed?.stop();
     feed = null;
+    torchOk = focusOk = torchOn = false;
     const query = new URLSearchParams(location.search);
     const forceTest = query.get('source') === 'test';
     // ?camfps=30 simulates a 30 fps camera on the test card
@@ -262,7 +284,10 @@
       return;
     }
     try {
-      feed = await openCamera(facing);
+      feed = await openCamera(facing, { ...cameraSize(prefs.side), fps: prefs.fps });
+      torchOn = false;
+      torchOk = feed.torch;
+      focusOk = feed.canFocus;
       const mirror = facing === 'user';
       if (feed.stream) send({ type: 'frames', stream: feed.stream, mirror }, [feed.stream]);
       else feed.pump((frame) => send({ type: 'frame', frame, mirror }, [frame]));
@@ -276,8 +301,35 @@
 
   function flip() {
     facing = facing === 'environment' ? 'user' : 'environment';
+    patch({ facing });
     buzz(8);
     startCamera();
+  }
+
+  function toggleTorch() {
+    torchOn = !torchOn;
+    feed?.setTorch(torchOn);
+    buzz(8);
+  }
+
+  function toggleMode() {
+    patch({ mode: prefs.mode === 'photo' ? 'video' : 'photo' });
+    buzz(8);
+  }
+
+  function toggleFav(id: string) {
+    patch({ favs: prefs.favs.includes(id) ? prefs.favs.filter((f) => f !== id) : [...prefs.favs, id] });
+    buzz([12, 40, 12]);
+  }
+
+  // the strip leads with the favourites; the rest keeps the catalogue order
+  const ordered = $derived([...presets.filter((p) => prefs.favs.includes(p.id)), ...presets.filter((p) => !prefs.favs.includes(p.id))]);
+
+  /** Tap to focus; the front camera is mirrored in the viewfinder. */
+  function tapFocus(x: number, y: number) {
+    if (!feed?.canFocus) return;
+    feed.focusAt({ x: facing === 'user' ? 1 - x : x, y });
+    flash('reticle', 700, () => (reticle = { x, y }), () => (reticle = null));
   }
 
   function setMacro(i: number, value: number) {
@@ -318,7 +370,9 @@
         const m = macros[2];
         if (m) setMacro(2, twistFrom + (radians / Math.PI) * (m.max - m.min));
       },
+      onTap: tapFocus,
       onDoubleTap() {
+        feed?.focusAt();
         defaults.forEach((v, i) => v !== undefined && setMacro(i, v));
         applyZoom(1);
         tilt?.recalibrate();
@@ -390,6 +444,7 @@
     // ?gpu=compat forces WebGPU compatibility mode, ?gpu=gl the WebGL2 backend: to test what those phones get
     const flag = new URLSearchParams(location.search).get('gpu');
     const gpu = flag === 'compat' || flag === 'gl' ? flag : undefined;
+    send({ type: 'capture', side: prefs.side, fps: prefs.fps, quality: prefs.quality });
     send({ type: 'init', canvas: offscreen, ...physicalSize(), gpu }, [offscreen]);
 
     const ro = new ResizeObserver(() => send({ type: 'resize', ...physicalSize() }));
@@ -418,7 +473,7 @@
   const recClock = $derived(`${String(Math.floor(recSeconds / 60)).padStart(2, '0')}:${String(recSeconds % 60).padStart(2, '0')}`);
   const lens = $derived(source === 'test' ? 'TEST' : facing === 'user' ? 'FRON' : 'TRAS');
   const two = (n: number) => String(n).padStart(2, '0');
-  const position = $derived(`${two(presets.indexOf(active) + 1)}/${two(presets.length)}`);
+  const position = $derived(`${two(ordered.indexOf(active) + 1)}/${two(ordered.length)}`);
 
   // the readouts sit just above the deck, whatever its height is
   let deckH = $state(0);
@@ -443,17 +498,30 @@
   </button>
   {/if}
 
-  <!-- right edge: fullscreen and clean mode; clean keeps only its own key -->
+  <!-- right edge: clean mode keeps only its own key and the shutter mode -->
   <div class="tools">
     {#if !clean}
       <button class="key cut-tr" type="button" onclick={toggleFullscreen} aria-label={fullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}>
         <span class="label cut-tr">{fullscreen ? 'SAL' : 'PANT'}</span>
       </button>
+      {#if torchOk}
+        <button class="key cut-tr" class:on={torchOn} type="button" onclick={toggleTorch} aria-label="Linterna" aria-pressed={torchOn}>
+          <span class="label cut-tr">LUZ</span>
+        </button>
+      {/if}
+      <button class="key cut-tr" type="button" onclick={() => (settingsOpen = true)} aria-label="Ajustes de captura">
+        <span class="label cut-tr">AJUS</span>
+      </button>
     {/if}
+    <button class="key cut-tr" class:on={prefs.mode === 'video'} type="button" onclick={toggleMode} disabled={recording} aria-label={prefs.mode === 'video' ? 'Modo vídeo: cambiar a foto' : 'Modo foto: cambiar a vídeo'}>
+      <span class="label cut-tr">{prefs.mode === 'video' ? 'VID' : 'FOTO'}</span>
+    </button>
     <button class="key cut-tr" type="button" onclick={() => (clean = !clean)} aria-label={clean ? 'Mostrar controles' : 'Ocultar controles'} aria-pressed={clean}>
       <span class="label cut-tr">{clean ? 'VER' : 'HUD'}</span>
     </button>
   </div>
+
+  {#if reticle}<i class="reticle" style:left="{reticle.x * 100}%" style:top="{reticle.y * 100}%"></i>{/if}
 
   {#if titleOn && !clean}<p class="fxtitle">{active.name}</p>{/if}
 
@@ -505,12 +573,13 @@
     </div>
     <!-- hidden, not removed: the strip owns the live thumbnails -->
     <div class="strip" hidden={clean}>
-      <EffectStrip effects={presets} selected={effectId} onselect={(id) => selectEffect(id)} onthumb={queueThumb} />
+      <EffectStrip effects={ordered} selected={effectId} favs={prefs.favs} onselect={(id) => selectEffect(id)} onfav={toggleFav} onthumb={queueThumb} />
     </div>
     <div class="row" class:clean>
       <button class="key cut-tr" type="button" onclick={flip} aria-label="Cambiar cámara" hidden={clean}><span class="label cut-tr">F/T</span></button>
       <Shutter
         {recording}
+        mode={prefs.mode}
         onphoto={() => send({ type: 'photo' })}
         onrecstart={() => send({ type: 'recStart' })}
         onrecstop={() => send({ type: 'recStop' })}
@@ -522,6 +591,10 @@
       </button>
     </div>
   </div>
+
+  {#if settingsOpen}
+    <Settings settings={prefs} onchange={patch} onclose={() => (settingsOpen = false)} />
+  {/if}
 
   {#if galleryOpen}
     <Gallery items={captures} onclose={() => (galleryOpen = false)} onshare={share} onsave={save} ondelete={removeOne} onclear={removeAll} />
@@ -587,6 +660,23 @@
     padding: 0 var(--space-1);
     font-size: 10px;
     line-height: 12px;
+  }
+  /* an active toggle fills with acid, like the selected effect's label */
+  .key.on span {
+    background: var(--acid);
+    color: var(--ink-fixed);
+  }
+  .key:disabled {
+    opacity: 1;
+    cursor: default;
+  }
+  .reticle {
+    position: absolute;
+    width: 56px;
+    height: 56px;
+    margin: -28px 0 0 -28px;
+    border: var(--stroke) solid var(--acid);
+    pointer-events: none;
   }
   .tag {
     position: absolute;

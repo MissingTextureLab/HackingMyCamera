@@ -20,6 +20,8 @@ export interface GestureHandlers {
   onPinch(scale: number): void;
   onTwist(radians: number): void;
   onDoubleTap(): void;
+  /** A tap (also the first of a double tap), in 0..1 across the viewfinder. */
+  onTap(x: number, y: number): void;
   onStart(kind: 'drag' | 'pinch'): void;
   onEnd(): void;
   /** After every pointer event, with the updated touch state. */
@@ -139,6 +141,8 @@ export class Gestures {
     this.h.onTouch(this.touch);
 
     if (!this.moved) {
+      const n = this.norm({ x: e.clientX, y: e.clientY });
+      this.h.onTap(n.x, n.y);
       const now = performance.now();
       if (now - this.lastTap < DOUBLE_TAP_MS) {
         this.lastTap = 0;
