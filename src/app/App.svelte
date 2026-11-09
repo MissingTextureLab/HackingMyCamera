@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import EffectStrip from './EffectStrip.svelte';
   import Shutter from './Shutter.svelte';
+  import Gallery from './Gallery.svelte';
+  import { clearCaptures, listCaptures, numberOf, removeCapture, saveCapture, type Capture } from '../capture/store';
   import { PRESETS } from '../presets';
   import { cameraSupported, MAX_ZOOM, openCamera, type CameraFeed, type Facing } from '../io/camera';
   import { Gestures } from './gestures';
@@ -50,6 +52,12 @@
   let stamp = $state<string | null>(null);
   let misreg = $state(false);
   let last = $state<{ url: string; blob: Blob; name: string; video: boolean } | null>(null);
+  /** Everything captured, newest first (kept in OPFS, so it outlives the session). */
+  let captures = $state.raw<Capture[]>([]);
+  let galleryOpen = $state(false);
+  /** Clean mode: only the image and the shutter. */
+  let clean = $state(false);
+  let fullscreen = $state(false);
 
   // status
   let fatal = $state<Diagnosis | null>(null);
@@ -173,11 +181,14 @@
   function keep(blob: Blob, name: string, video: boolean) {
     if (last) URL.revokeObjectURL(last.url);
     last = { url: URL.createObjectURL(blob), blob, name, video };
+    saveCapture(blob, name).then(
+      (c) => (captures = [c, ...captures.filter((x) => x.name !== c.name)]),
+      () => say('NO SE GUARDÓ'),
+    );
   }
 
-  async function share() {
-    if (!last) return;
-    const file = new File([last.blob], last.name, { type: last.blob.type });
+  async function share(c: Capture) {
+    const file = c.file;
     try {
       if (navigator.canShare?.({ files: [file] })) {
         await navigator.share({ files: [file] });
@@ -186,10 +197,44 @@
     } catch (e) {
       if ((e as Error).name === 'AbortError') return;
     }
+    save(c);
+  }
+
+  function save(c: Capture) {
+    const url = URL.createObjectURL(c.file);
     const a = document.createElement('a');
-    a.href = last.url;
-    a.download = last.name;
+    a.href = url;
+    a.download = c.name;
     a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  }
+
+  async function removeOne(c: Capture) {
+    await removeCapture(c.name);
+    captures = captures.filter((x) => x.name !== c.name);
+    if (last?.name === c.name) forgetLast();
+  }
+
+  async function removeAll() {
+    await clearCaptures();
+    captures = [];
+    forgetLast();
+  }
+
+  function forgetLast() {
+    if (last) URL.revokeObjectURL(last.url);
+    last = null;
+  }
+
+  async function loadCaptures() {
+    captures = await listCaptures();
+    const newest = captures[0];
+    if (newest && !last) last = { url: URL.createObjectURL(newest.file), blob: newest.file, name: newest.name, video: newest.video };
+    // names keep counting after what is already stored
+    const top = Math.max(0, ...captures.map((c) => numberOf(c.name)));
+    try {
+      if (top > Number(localStorage.getItem('hmc.count') ?? '0')) localStorage.setItem('hmc.count', String(top));
+    } catch {}
   }
 
   function selectEffect(id: string, announce = true) {
@@ -288,16 +333,29 @@
     });
   }
 
-  // Fullscreen and wake lock need a user gesture: take the first one.
+  // Fullscreen and wake lock need a user gesture: take the first one. After that
+  // the PANT key toggles it, so leaving fullscreen on purpose sticks.
   let engaged = false;
   async function engage() {
     if (engaged) return;
     engaged = true;
+    await enterFullscreen();
+    await holdScreen();
+  }
+  async function enterFullscreen() {
     try {
       await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
     } catch {}
+  }
+  async function toggleFullscreen() {
+    if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
+    else await enterFullscreen();
+    buzz(8);
+  }
+  let wake: WakeLockSentinel | null = null;
+  async function holdScreen() {
     try {
-      await navigator.wakeLock?.request('screen');
+      wake = (await navigator.wakeLock?.request('screen')) ?? null;
     } catch {}
   }
 
@@ -338,7 +396,16 @@
     ro.observe(canvas);
     const gestures = attachGestures(canvas);
     tilt = new Tilt((state) => send({ type: 'motion', state }));
+    loadCaptures();
+    const onFs = () => (fullscreen = !!document.fullscreenElement);
+    // the wake lock is released whenever the page is hidden: take it again
+    const onVisible = () => engaged && document.visibilityState === 'visible' && holdScreen();
+    document.addEventListener('fullscreenchange', onFs);
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
+      document.removeEventListener('fullscreenchange', onFs);
+      document.removeEventListener('visibilitychange', onVisible);
+      wake?.release().catch(() => {});
       tilt?.destroy();
       gestures.destroy();
       ro.disconnect();
@@ -366,6 +433,7 @@
     aria-label="Visor: arrastra para las macros, pellizca para el zoom, gira con dos dedos, doble toque para restablecer"
   ></canvas>
 
+  {#if !clean}
   <div class="tag tl label cut-br active"><span class="muted">FX-{active.code}</span><span>{active.name}</span></div>
   <button class="tag tc label" type="button" onclick={toggleGrade} aria-label="Revelado: {GRADES[grade]}. Toca para cambiar">
     <span class="swatch" class:violet={grade === 1}></span><span>{GRADES[grade]}</span>
@@ -373,8 +441,21 @@
   <button class="tag tr label cut-bl" type="button" onclick={statusTap} aria-label="Cámara {lens}. Tres toques abren el HUD de depuración">
     <span class="led" class:on={source === 'camera'} class:rec={recording}></span><span>{lens}</span>
   </button>
+  {/if}
 
-  {#if titleOn}<p class="fxtitle">{active.name}</p>{/if}
+  <!-- right edge: fullscreen and clean mode; clean keeps only its own key -->
+  <div class="tools">
+    {#if !clean}
+      <button class="key cut-tr" type="button" onclick={toggleFullscreen} aria-label={fullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}>
+        <span class="label cut-tr">{fullscreen ? 'SAL' : 'PANT'}</span>
+      </button>
+    {/if}
+    <button class="key cut-tr" type="button" onclick={() => (clean = !clean)} aria-label={clean ? 'Mostrar controles' : 'Ocultar controles'} aria-pressed={clean}>
+      <span class="label cut-tr">{clean ? 'VER' : 'HUD'}</span>
+    </button>
+  </div>
+
+  {#if titleOn && !clean}<p class="fxtitle">{active.name}</p>{/if}
 
   {#if recording}
     <div class="recstamp"><b>REC</b><span>{recClock}</span></div>
@@ -409,7 +490,7 @@
     </div>
   {/if}
 
-  {#if hud && stats}
+  {#if hud && stats && !clean}
     <div class="hud label">
       <span>{stats.fps.toFixed(0)} FPS</span>
       <span>GPU {stats.stats.gpuMs?.toFixed(2) ?? '—'} MS</span>
@@ -419,24 +500,32 @@
   {/if}
 
   <div class="deck" bind:clientHeight={deckH}>
-    <div class="rail" aria-hidden="true">
+    <div class="rail" aria-hidden="true" hidden={clean}>
       <span class="pos label cut-bl">{position}</span>
     </div>
-    <EffectStrip effects={presets} selected={effectId} onselect={(id) => selectEffect(id)} onthumb={queueThumb} />
-    <div class="row">
-      <button class="key cut-tr" type="button" onclick={flip} aria-label="Cambiar cámara"><span class="label cut-tr">F/T</span></button>
+    <!-- hidden, not removed: the strip owns the live thumbnails -->
+    <div class="strip" hidden={clean}>
+      <EffectStrip effects={presets} selected={effectId} onselect={(id) => selectEffect(id)} onthumb={queueThumb} />
+    </div>
+    <div class="row" class:clean>
+      <button class="key cut-tr" type="button" onclick={flip} aria-label="Cambiar cámara" hidden={clean}><span class="label cut-tr">F/T</span></button>
       <Shutter
         {recording}
         onphoto={() => send({ type: 'photo' })}
         onrecstart={() => send({ type: 'recStart' })}
         onrecstop={() => send({ type: 'recStop' })}
       />
-      <button class="last cut-tl" type="button" onclick={share} aria-label="Compartir última captura" disabled={!last} data-src={last?.url}>
+      <button class="last cut-tl" type="button" onclick={() => (galleryOpen = true)} aria-label="Abrir galería" hidden={clean} data-src={last?.url}>
         <span class="well cut-tl">{#if last && !last.video}<img src={last.url} alt="" />{/if}</span>
         {#if last}<span class="n">{last.name.slice(4, 8)}{last.video ? ' MP4' : ''}</span>{/if}
+        {#if captures.length > 1}<span class="c label">{captures.length}</span>{/if}
       </button>
     </div>
   </div>
+
+  {#if galleryOpen}
+    <Gallery items={captures} onclose={() => (galleryOpen = false)} onshare={share} onsave={save} ondelete={removeOne} onclear={removeAll} />
+  {/if}
 
   {#if fatal}
     <div class="fatal" role="alert">
@@ -473,6 +562,32 @@
     touch-action: none;
   }
 
+  .tools {
+    position: absolute;
+    right: var(--space-4);
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  /* the hidden attribute must win over the display set by the layout classes */
+  [hidden] {
+    display: none !important;
+  }
+  .row.clean {
+    grid-template-columns: 1fr;
+  }
+  .last .c {
+    position: absolute;
+    right: 1px;
+    top: 1px;
+    background: var(--acid);
+    color: var(--ink-fixed);
+    padding: 0 var(--space-1);
+    font-size: 10px;
+    line-height: 12px;
+  }
   .tag {
     position: absolute;
     display: inline-flex;
