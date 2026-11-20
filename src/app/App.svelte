@@ -5,7 +5,7 @@
   import Gallery from './Gallery.svelte';
   import Settings from './Settings.svelte';
   import { cameraSize, loadSettings, saveSettings, type Settings as Prefs } from './settings';
-  import { clearCaptures, listCaptures, numberOf, removeCapture, saveCapture, type Capture } from '../capture/store';
+  import { listCaptures, numberOf, removeCapture, saveCapture, type Capture } from '../capture/store';
   import { PRESETS } from '../presets';
   import { cameraSupported, MAX_ZOOM, openCamera, type CameraFeed, type Facing } from '../io/camera';
   import { Gestures } from './gestures';
@@ -205,17 +205,17 @@
     );
   }
 
-  async function share(c: Capture) {
-    const file = c.file;
+  async function share(list: Capture[]) {
+    const files = list.map((c) => c.file);
     try {
-      if (navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file] });
+      if (navigator.canShare?.({ files })) {
+        await navigator.share({ files });
         return;
       }
     } catch (e) {
       if ((e as Error).name === 'AbortError') return;
     }
-    save(c);
+    list.forEach(save);
   }
 
   function save(c: Capture) {
@@ -227,16 +227,11 @@
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
   }
 
-  async function removeOne(c: Capture) {
-    await removeCapture(c.name);
-    captures = captures.filter((x) => x.name !== c.name);
-    if (last?.name === c.name) forgetLast();
-  }
-
-  async function removeAll() {
-    await clearCaptures();
-    captures = [];
-    forgetLast();
+  async function removeMany(list: Capture[]) {
+    await Promise.all(list.map((c) => removeCapture(c.name)));
+    const gone = new Set(list.map((c) => c.name));
+    captures = captures.filter((x) => !gone.has(x.name));
+    if (last && gone.has(last.name)) forgetLast();
   }
 
   function forgetLast() {
@@ -597,7 +592,7 @@
   {/if}
 
   {#if galleryOpen}
-    <Gallery items={captures} onclose={() => (galleryOpen = false)} onshare={share} onsave={save} ondelete={removeOne} onclear={removeAll} />
+    <Gallery items={captures} onclose={() => (galleryOpen = false)} onshare={share} onsave={save} ondelete={removeMany} />
   {/if}
 
   {#if fatal}

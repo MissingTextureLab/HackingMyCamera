@@ -67,7 +67,10 @@ src/render/    worker.ts (owns GPU, canvases, camera frames, recorder, signals),
 src/io/        camera.ts: getUserMedia → MediaStreamTrackProcessor → transferred stream; hardware zoom
                motion.ts: DeviceOrientation tilt relative to a reference pose (the `motion` signal)
 src/capture/   recorder.ts: Mediabunny CanvasSource → mp4 (video only)
+               store.ts: captures persisted in OPFS (memory fallback); thumbs.ts: cached 256 px square thumbnails for the roll
 src/app/       Svelte 5 UI (App, Shutter, EffectStrip) and gestures.ts (drag / pinch / twist / double tap)
+               Gallery.svelte: the capture roll, phone-gallery style (grid by day, long-press select, swipe/zoom viewer);
+               it pushes a history entry per level so the system Back closes viewer → roll → camera
 ```
 
 ## Engine rules

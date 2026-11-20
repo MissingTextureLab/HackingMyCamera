@@ -134,6 +134,16 @@ La imagen es la superficie de control. Ningún gesto abre menús.
 | Tocar / mantener el obturador | Foto / grabar mientras se mantiene | Sello `GUARDADO` / `REC` |
 | Toque en la etiqueta central | Cambia el revelado: ÁCIDO ↔ MORADO | el nombre del modo |
 | Triple toque en la etiqueta de cámara | HUD de depuración | fps, ms de GPU, resolución, pases |
+| Tocar la última captura | Abre el carrete | cuadrícula por días; ver *El carrete* |
+
+### El carrete
+
+El carrete de capturas se comporta como la galería de cualquier móvil y se viste como el aparato:
+
+- **Cuadrícula:** 4 columnas de miniaturas cuadradas con 2 px de hueco, agrupadas por día (`HOY`, `AYER`, `VIE 14 NOV`) bajo una regla `lagoon` pegajosa. Cada miniatura lleva el chaflán abajo a la derecha, como las de la tira. Los vídeos llevan una placa con ▶ y la duración en Doto.
+- **Selección:** mantener 450 ms una miniatura entra en selección; las elegidas se hunden en su hueco (`panel-deep`) y marcan una casilla `acid`. `TODO` / `QUITAR` por día, `TODAS` arriba. Borrar pide dos toques: la tecla pasa a `flash` con `SEGURO` durante 3 s.
+- **Visor:** deslizar cambia de captura, pellizcar o doble toque hace zoom (hasta 6×), arrastrar hacia abajo cierra, un toque oculta o muestra las barras; en un vídeo el toque reproduce / pausa. Las barras son placas sólidas (sin transparencias) y se mueven a saltos (`ease-step`). `INFO` abre una placa con archivo, fecha, peso y tamaño.
+- **Atrás:** cada nivel (carrete, selección, visor) empuja una entrada de historial, así que el gesto Atrás de Android cierra el visor, luego el carrete, luego nada más.
 
 Reglas:
 - El navegador nunca hace zoom ni scroll sobre la app; todos los gestos son nuestros (`touch-action: none`).
